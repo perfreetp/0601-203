@@ -121,6 +121,40 @@ export interface AnalyticsConfig {
   enabled: boolean;
   endpoint?: string;
   batchInterval?: number;
+  batchSize?: number;
+  maxRetries?: number;
+  retryDelay?: number;
+  headers?: Record<string, string>;
+  onBatchSuccess?: (batch: AnalyticsEvent[], response: unknown) => void;
+  onBatchFailure?: (batch: AnalyticsEvent[], error: unknown, retriesLeft: number) => void;
+  autoFlush?: boolean;
+  enableOfflineStorage?: boolean;
+}
+
+export interface AnalyticsEvent {
+  eventType: string;
+  timestamp: number;
+  sessionId: string;
+  userId?: string;
+  properties?: Record<string, unknown>;
+  eventId?: string;
+  retryCount?: number;
+}
+
+export interface AnalyticsBatchResult {
+  success: boolean;
+  eventCount: number;
+  failedEvents?: AnalyticsEvent[];
+  response?: unknown;
+  error?: unknown;
+}
+
+export interface AnalyticsState {
+  pendingEvents: AnalyticsEvent[];
+  offlineEvents: AnalyticsEvent[];
+  lastFlushTime?: number;
+  totalReported: number;
+  totalFailed: number;
 }
 
 export interface Product {
@@ -435,12 +469,4 @@ export interface VoicePlaybackConfig {
   subtitles?: SubtitleConfig[];
   volume?: number;
   onComplete?: () => void;
-}
-
-export interface AnalyticsEvent {
-  eventType: string;
-  timestamp: number;
-  sessionId: string;
-  userId?: string;
-  properties?: Record<string, unknown>;
 }

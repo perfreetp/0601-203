@@ -8,7 +8,9 @@ import {
   Product,
   Hotspot,
   HotspotType,
-  AvatarGesture
+  AvatarGesture,
+  TourState,
+  TourStep
 } from '../types';
 import { EventEmitter } from '../core/EventEmitter';
 import { Logger } from '../core/Logger';
@@ -16,6 +18,7 @@ import { I18nManager } from './I18nManager';
 import { ShowcaseManager } from './ShowcaseManager';
 import { AvatarManager, Avatar } from './AvatarManager';
 import { HotspotManager } from './HotspotManager';
+import { TourManager } from './TourManager';
 import { isBrowser, generateId } from '../utils/helpers';
 
 const HOTSPOT_ICON_SMALL: Record<HotspotType, string> = {
@@ -77,6 +80,7 @@ export class ShareManager implements IShareManager {
   private showcaseManager: ShowcaseManager;
   private avatarManager: AvatarManager;
   private hotspotManager: HotspotManager;
+  private tourManager: TourManager;
   private canvas?: HTMLCanvasElement;
 
   constructor(
@@ -85,7 +89,8 @@ export class ShareManager implements IShareManager {
     i18n: I18nManager,
     showcaseManager: ShowcaseManager,
     avatarManager: AvatarManager,
-    hotspotManager: HotspotManager
+    hotspotManager: HotspotManager,
+    tourManager: TourManager
   ) {
     this.eventEmitter = eventEmitter;
     this.logger = logger;
@@ -93,6 +98,7 @@ export class ShareManager implements IShareManager {
     this.showcaseManager = showcaseManager;
     this.avatarManager = avatarManager;
     this.hotspotManager = hotspotManager;
+    this.tourManager = tourManager;
   }
 
   async takeScreenshot(config?: ScreenshotConfig): Promise<ScreenshotResult> {
@@ -134,6 +140,8 @@ export class ShareManager implements IShareManager {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, config.width, config.height);
 
+    const scale = config.width / 1920;
+
     const floorY = config.height * 0.7;
     const floorGrad = ctx.createLinearGradient(0, floorY, 0, config.height);
     floorGrad.addColorStop(0, 'rgba(255,255,255,0.05)');
@@ -144,19 +152,29 @@ export class ShareManager implements IShareManager {
     ctx.fill();
 
     const products = this.showcaseManager.getAllProducts();
-    const productSpacing = config.width / (products.length + 1);
-    products.forEach((product, idx) => {
-      this.drawProductCard(ctx, product, productSpacing * (idx + 1), config.height * 0.55, config);
+    products.forEach((product) => {
+      const posX = product.position?.x ?? 0;
+      const posY = product.position?.y ?? 0;
+      const cardX = config.width / 2 + posX * 240 * scale;
+      const cardY = config.height * 0.62 - posY * 120 * scale;
+      this.drawProductCard(ctx, product, cardX, cardY, config);
     });
 
     const activeAvatar = this.avatarManager.getActiveAvatar();
     if (activeAvatar) {
-      this.drawDetailedAvatar(ctx, activeAvatar, config.width / 2, config.height * 0.32, config);
+      const avX = config.width / 2 + (activeAvatar.position?.x ?? 0) * 180 * scale;
+      const avY = config.height * 0.38 + (activeAvatar.position?.y ?? 0) * 100 * scale;
+      this.drawDetailedAvatar(ctx, activeAvatar, avX, avY, config);
     }
 
     const hotspots = this.hotspotManager.getAllHotspots();
     if (hotspots.length > 0) {
       this.drawAllHotspots(ctx, hotspots, config);
+    }
+
+    const tourState = this.tourManager.getTourState();
+    if (tourState && config.includeUI) {
+      this.drawTourProgress(ctx, tourState, this.tourManager.getTourSteps(), config);
     }
 
     if (config.includeUI) {
@@ -250,9 +268,10 @@ export class ShareManager implements IShareManager {
     }
 
     if (avatar.currentAnimation) {
-      const gestureEmoji = Object.entries(GESTURE_EMOJI).find(
+      const gestureKey = Object.entries(AvatarGesture).find(
         ([, v]) => v === avatar.currentAnimation
-      )?.[1];
+      )?.[1] as AvatarGesture | undefined;
+      const gestureEmoji = gestureKey ? GESTURE_EMOJI[gestureKey] : undefined;
       if (gestureEmoji) {
         ctx.font = `${44 * scale}px sans-serif`;
         ctx.fillText(gestureEmoji, x + 80 * scale, y + 20 * scale);
@@ -269,7 +288,9 @@ export class ShareManager implements IShareManager {
         ctx.fillRect(barX + i * 12 * scale, barY - h, 6 * scale, h);
       }
 
-      this.drawSubtitleBubble(ctx, '正在为您讲解...', x, y - 160 * scale, scale);
+      const subtitle = this.i18n.getSubtitle();
+      const subtitleText = subtitle?.text || avatar.subtitleElement?.textContent || '正在为您讲解...';
+      this.drawSubtitleBubble(ctx, subtitleText, x, y - 160 * scale, scale);
     }
   }
 
@@ -374,6 +395,56 @@ export class ShareManager implements IShareManager {
     const G = Math.min(255, ((num >> 8) & 0x00ff) + amt);
     const B = Math.min(255, (num & 0x0000ff) + amt);
     return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
+  }
+
+  private drawTourProgress(
+    ctx: CanvasRenderingContext2D,
+    tourState: TourState,
+    tourSteps: TourStep[],
+    config: Required<ScreenshotConfig>
+  ): void {
+    const scale = config.width / 1920;
+    const panelW = 420 * scale;
+    const panelH = 96 * scale;
+    const panelX = config.width - panelW - 24 * scale;
+    const panelY = 24 * scale;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    this.roundRect(ctx, panelX, panelY, panelW, panelH, 14 * scale);
+    ctx.fill();
+
+    const title = tourState.isCompleted ? '导览已完成' : tourState.isPaused ? '导览已暂停' : '导览进行中';
+    const icon = tourState.isCompleted ? '✅' : tourState.isPaused ? '⏸️' : '▶️';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${15 * scale}px sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillText(`${icon} ${title}`, panelX + 16 * scale, panelY + 30 * scale);
+
+    const totalSteps = tourSteps.length;
+    const completedCount = tourState.stepProgress.filter((s) => s.completed).length;
+    const progress = totalSteps > 0 ? Math.min(1, completedCount / totalSteps) : 0;
+
+    const barX = panelX + 16 * scale;
+    const barY = panelY + 44 * scale;
+    const barW = panelW - 32 * scale;
+    const barH = 8 * scale;
+    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    this.roundRect(ctx, barX, barY, barW, barH, barH / 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#4a90d9';
+    this.roundRect(ctx, barX, barY, barW * progress, barH, barH / 2);
+    ctx.fill();
+
+    const currentStep = tourSteps[tourState.currentStepIndex];
+    const stepLabel = currentStep
+      ? `步骤 ${tourState.currentStepIndex + 1}/${totalSteps}：${currentStep.title}`
+      : `${completedCount}/${totalSteps} 步`;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = `${12 * scale}px sans-serif`;
+    ctx.fillText(stepLabel, panelX + 16 * scale, panelY + 76 * scale);
+    ctx.restore();
   }
 
   private drawProductCard(

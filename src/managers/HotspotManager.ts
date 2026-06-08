@@ -6,7 +6,8 @@ import {
   Coupon,
   InteractionEventType,
   InteractionEvent,
-  MiniGame
+  MiniGame,
+  GameReward
 } from '../types';
 import { EventEmitter } from '../core/EventEmitter';
 import { Logger } from '../core/Logger';
@@ -510,18 +511,177 @@ export class HotspotManager {
   }
 
   private showGamePopup(hotspot: Hotspot): void {
-    const games = this.getAllGames();
-    const game = games[0];
+    const gameId = (hotspot.metadata?.gameId as string) || (hotspot.metadata?.game as string);
+    const game = gameId ? this.getGame(gameId) : this.getAllGames()[0];
 
+    if (!game) {
+      this.showPopup({
+        title: this.i18n.t(`game.${hotspot.metadata?.gameType || 'lucky_draw'}`),
+        content: this.i18n.t('game.lucky_draw')
+      });
+      return;
+    }
+
+    this.openGamePanel(game);
+  }
+
+  private openGamePanel(game: MiniGame): void {
+    if (!isBrowser()) return;
+    this.closePopup();
+
+    const uiLayer = this.showcaseManager.getUILayer();
+    if (!uiLayer) return;
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position:absolute;top:0;left:0;right:0;bottom:0;
+      background:rgba(0,0,0,0.6);z-index:9998;pointer-events:auto;
+    `;
+    overlay.addEventListener('click', () => this.closePopup());
+
+    const panel = document.createElement('div');
+    panel.className = 'mv-game-panel';
+    panel.style.cssText = `
+      position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+      background:#fff;border-radius:20px;padding:28px;min-width:320px;max-width:400px;
+      box-shadow:0 24px 64px rgba(0,0,0,0.3);z-index:9999;pointer-events:auto;
+      animation:mv-popup-in 0.3s ease;
+    `;
+    panel.addEventListener('click', (e) => e.stopPropagation());
+
+    const header = document.createElement('div');
+    header.style.cssText = 'text-align:center;margin-bottom:20px;';
+    header.innerHTML = `
+      <div style="font-size:44px;margin-bottom:8px">🎮</div>
+      <div style="font-size:20px;font-weight:700;color:#333">${game.name}</div>
+      <div style="font-size:13px;color:#888;margin-top:4px">${game.description || ''}</div>
+    `;
+    panel.appendChild(header);
+
+    if (game.rewards && game.rewards.length > 0) {
+      const rewardsWrap = document.createElement('div');
+      rewardsWrap.style.cssText = `
+        background:#f7f9fc;border-radius:12px;padding:14px;margin-bottom:18px;
+      `;
+      const rTitle = document.createElement('div');
+      rTitle.style.cssText = 'font-size:13px;font-weight:600;color:#555;margin-bottom:10px;';
+      rTitle.textContent = '🎁 奖品预览';
+      rewardsWrap.appendChild(rTitle);
+
+      const rList = document.createElement('div');
+      rList.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px;';
+      for (const reward of game.rewards) {
+        const r = document.createElement('div');
+        r.style.cssText = `
+          background:#fff;border:1px solid #e8ecf1;border-radius:8px;
+          padding:8px 10px;font-size:12px;color:#333;
+        `;
+        const emoji = reward.type === 'coupon' ? '🎟️' : reward.type === 'product' ? '🛍️' : reward.type === 'points' ? '⭐' : '🏅';
+        r.innerHTML = `<span style="margin-right:4px">${emoji}</span>${reward.name}`;
+        rList.appendChild(r);
+      }
+      rewardsWrap.appendChild(rList);
+      panel.appendChild(rewardsWrap);
+    }
+
+    if (game.type === 'quiz' && (game.config?.questions as unknown[])?.length) {
+      const qWrap = document.createElement('div');
+      qWrap.style.cssText = 'margin-bottom:18px;';
+      const qs = game.config?.questions as Array<{ question: string; options: string[] }>;
+      if (qs && qs[0]) {
+        const qText = document.createElement('div');
+        qText.style.cssText = 'font-size:14px;color:#333;font-weight:600;margin-bottom:10px;';
+        qText.textContent = `❓ ${qs[0].question}`;
+        qWrap.appendChild(qText);
+        for (let i = 0; i < qs[0].options.length; i++) {
+          const opt = document.createElement('div');
+          opt.style.cssText = `
+            padding:10px 12px;border:1px solid #e0e5ec;border-radius:8px;
+            font-size:13px;color:#555;margin-bottom:6px;cursor:pointer;
+            transition:all 0.2s;
+          `;
+          opt.textContent = `${String.fromCharCode(65 + i)}. ${qs[0].options[i]}`;
+          opt.addEventListener('mouseenter', () => { opt.style.borderColor = '#4a90d9'; opt.style.background = '#f0f7ff'; });
+          opt.addEventListener('mouseleave', () => { opt.style.borderColor = '#e0e5ec'; opt.style.background = '#fff'; });
+          qWrap.appendChild(opt);
+        }
+      }
+      panel.appendChild(qWrap);
+    }
+
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:10px;';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.style.cssText = `
+      flex:1;padding:12px;border:1px solid #ddd;background:#fff;border-radius:10px;
+      font-size:14px;color:#666;cursor:pointer;font-weight:500;
+    `;
+    closeBtn.textContent = this.i18n.t('action.close');
+    closeBtn.addEventListener('click', () => this.closePopup());
+
+    const playBtn = document.createElement('button');
+    playBtn.style.cssText = `
+      flex:1;padding:12px;border:none;background:linear-gradient(135deg,#27ae60,#2ecc71);
+      color:#fff;border-radius:10px;font-size:14px;cursor:pointer;font-weight:600;
+      box-shadow:0 4px 12px rgba(39,174,96,0.3);
+    `;
+    playBtn.textContent = '开始游戏';
+
+    const handleComplete = () => {
+      const reward = this.interactionManager.completeGame(game.id);
+      if (reward) {
+        this.handleGameReward(reward);
+        this.showGameResult(reward);
+      } else {
+        this.showPopup({
+          title: '游戏完成',
+          content: '感谢参与！'
+        });
+      }
+    };
+
+    playBtn.addEventListener('click', async () => {
+      await this.interactionManager.startGame(game.id);
+      playBtn.disabled = true;
+      playBtn.textContent = '游戏进行中...';
+
+      setTimeout(() => {
+        handleComplete();
+      }, 1200);
+    });
+
+    btnRow.appendChild(closeBtn);
+    btnRow.appendChild(playBtn);
+    panel.appendChild(btnRow);
+
+    uiLayer.appendChild(overlay);
+    uiLayer.appendChild(panel);
+  }
+
+  private handleGameReward(reward: GameReward): void {
+    if (reward.type === 'coupon' && typeof reward.value === 'string') {
+      const couponId = reward.value;
+      const coupon = this.getCoupon(couponId);
+      if (coupon && !coupon.claimed) {
+        coupon.claimed = true;
+        this.interactionManager.recordCouponClaim(couponId);
+        this.eventEmitter.emit(InteractionEventType.COUPON_CLAIM, {
+          couponId,
+          couponTitle: coupon.title,
+          discountType: coupon.discountType,
+          discountValue: coupon.discountValue,
+          fromGame: true
+        });
+      }
+    }
+  }
+
+  private showGameResult(reward: GameReward): void {
+    const emoji = reward.type === 'coupon' ? '🎟️' : reward.type === 'product' ? '🛍️' : reward.type === 'points' ? '⭐' : '🏅';
     this.showPopup({
-      title: game?.name || this.i18n.t(`game.${hotspot.metadata?.gameType || 'lucky_draw'}`),
-      content: game?.description || this.i18n.t('game.lucky_draw'),
-      game,
-      onConfirm: game
-        ? () => {
-            this.interactionManager.startGame(game.id);
-          }
-        : undefined
+      title: `🎉 恭喜获得`,
+      content: `${emoji} ${reward.name}`
     });
   }
 
@@ -805,14 +965,31 @@ export class HotspotManager {
 
   addGame(game: MiniGame): void {
     this.games.set(game.id, game);
+    this.interactionManager.addGame(game);
   }
 
   addGames(games: MiniGame[]): void {
     games.forEach((g) => this.addGame(g));
   }
 
+  getGame(gameId: string): MiniGame | undefined {
+    return this.interactionManager.getGame(gameId) || this.games.get(gameId);
+  }
+
   getAllGames(): MiniGame[] {
+    const fromInteraction = this.interactionManager.getAllGames();
+    if (fromInteraction.length > 0) return fromInteraction;
     return Array.from(this.games.values());
+  }
+
+  syncClaimedCoupons(couponIds: string[]): void {
+    for (const couponId of couponIds) {
+      const coupon = this.coupons.get(couponId);
+      if (coupon && !coupon.claimed) {
+        coupon.claimed = true;
+      }
+    }
+    this.logger.log(`HotspotManager: Synced ${couponIds.length} claimed coupons`);
   }
 
   removeCoupon(couponId: string): boolean {

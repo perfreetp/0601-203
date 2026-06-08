@@ -31,7 +31,10 @@ import {
   TourConfig,
   TourStep,
   TourState,
-  TourStepProgress
+  TourStepProgress,
+  AnalyticsConfig,
+  AnalyticsState,
+  AnalyticsBatchResult
 } from './types';
 
 import { EventEmitter } from './core/EventEmitter';
@@ -43,6 +46,7 @@ import { InteractionManager } from './managers/InteractionManager';
 import { ShareManager } from './managers/ShareManager';
 import { I18nManager } from './managers/I18nManager';
 import { TourManager } from './managers/TourManager';
+import { AnalyticsManager } from './managers/AnalyticsManager';
 import { generateSessionId, getPerformanceLevel } from './utils/helpers';
 
 export class MetaverseSDK {
@@ -58,6 +62,7 @@ export class MetaverseSDK {
   private shareManager: ShareManager;
   private i18nManager: I18nManager;
   private tourManager: TourManager;
+  private analyticsManager: AnalyticsManager;
   private initialized: boolean = false;
   private destroyed: boolean = false;
 
@@ -109,14 +114,6 @@ export class MetaverseSDK {
       this.showcaseManager,
       this.interactionManager
     );
-    this.shareManager = new ShareManager(
-      this.eventEmitter,
-      this.logger,
-      this.i18nManager,
-      this.showcaseManager,
-      this.avatarManager,
-      this.hotspotManager
-    );
     this.tourManager = new TourManager(
       this.eventEmitter,
       this.logger,
@@ -124,6 +121,20 @@ export class MetaverseSDK {
       this.avatarManager,
       this.hotspotManager,
       this.interactionManager
+    );
+    this.shareManager = new ShareManager(
+      this.eventEmitter,
+      this.logger,
+      this.i18nManager,
+      this.showcaseManager,
+      this.avatarManager,
+      this.hotspotManager,
+      this.tourManager
+    );
+    this.analyticsManager = new AnalyticsManager(
+      this.config.analytics || { enabled: false },
+      this.eventEmitter,
+      this.logger
     );
 
     this.setupInteractionListeners();
@@ -150,6 +161,15 @@ export class MetaverseSDK {
       if (this.config.autoPlay) {
         this.interactionManager.startVisit(this.config.userId);
         this.state.isPlaying = true;
+      }
+
+      const activeSessionId = this.interactionManager.getActiveSessionId();
+      if (activeSessionId) {
+        this.analyticsManager.setSession(activeSessionId, this.config.userId);
+      }
+      if (this.config.analytics?.enabled) {
+        this.analyticsManager.startAutoTracking();
+        void this.analyticsManager.flushOfflineEvents();
       }
 
       this.initialized = true;
@@ -586,6 +606,7 @@ export class MetaverseSDK {
     this.shareManager.destroy();
     this.i18nManager.destroy();
     this.tourManager.destroy();
+    void this.analyticsManager.destroy();
     this.eventEmitter.destroy();
 
     this.initialized = false;
@@ -698,18 +719,56 @@ export class MetaverseSDK {
 
   importVisitProgress(json: string): VisitProgress | null {
     const progress = this.interactionManager.importVisitProgress(json);
-    if (progress?.tourState) {
-      const tourSteps = this.tourManager.getTourSteps();
-      if (tourSteps.length > 0) {
-        const tourConfig: TourConfig = {
-          id: progress.tourState.tourId,
-          name: progress.tourState.tourId,
-          steps: tourSteps
-        };
-        this.tourManager.restoreTourState(progress.tourState, tourConfig);
+    if (progress) {
+      if (progress.claimedCoupons && progress.claimedCoupons.length > 0) {
+        this.hotspotManager.syncClaimedCoupons(progress.claimedCoupons);
+      }
+      if (progress.tourState) {
+        const tourSteps = this.tourManager.getTourSteps();
+        if (tourSteps.length > 0) {
+          const tourConfig: TourConfig = {
+            id: progress.tourState.tourId,
+            name: progress.tourState.tourId,
+            steps: tourSteps
+          };
+          this.tourManager.restoreTourState(progress.tourState, tourConfig);
+        }
+      }
+      if (progress.sessionId) {
+        this.analyticsManager.setSession(progress.sessionId, progress.userId);
       }
     }
     return progress;
+  }
+
+  trackEvent(eventType: string, properties?: Record<string, unknown>): void {
+    this.analyticsManager.track(eventType, properties);
+  }
+
+  async flushAnalytics(): Promise<AnalyticsBatchResult> {
+    this.ensureInitialized();
+    return this.analyticsManager.flush();
+  }
+
+  async flushOfflineAnalytics(): Promise<AnalyticsBatchResult> {
+    this.ensureInitialized();
+    return this.analyticsManager.flushOfflineEvents();
+  }
+
+  getAnalyticsState(): AnalyticsState {
+    return this.analyticsManager.getState();
+  }
+
+  clearOfflineAnalytics(): void {
+    this.analyticsManager.clearOfflineEvents();
+  }
+
+  setAnalyticsSession(sessionId: string, userId?: string): void {
+    this.analyticsManager.setSession(sessionId, userId);
+  }
+
+  configureAnalytics(_config: Partial<AnalyticsConfig>): void {
+    this.logger.warn('configureAnalytics: config updates require SDK re-init for full effect');
   }
 
   private ensureInitialized(): void {
