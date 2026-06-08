@@ -1,0 +1,40 @@
+{
+  "name": "@metaverse/showcase-sdk",
+  "version": "1.0.0",
+  "description": "元宇宙平台SDK - 供品牌App嵌入轻量虚拟展柜和数字人导购能力",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc && rollup -c",
+    "dev": "tsc -w",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "jest"
+  },
+  "keywords": [
+    "metaverse",
+    "showcase",
+    "virtual",
+    "avatar",
+    "sdk",
+    "3d",
+    "digital-human"
+  ],
+  "author": "Metaverse Platform Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@rollup/plugin-typescript": "^11.1.0",
+    "@types/node": "^20.19.42",
+    "rollup": "^4.9.0",
+    "tslib": "^2.8.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
