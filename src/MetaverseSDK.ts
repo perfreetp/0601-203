@@ -27,7 +27,11 @@ import {
   ScreenshotResult,
   ShareData,
   UserFeedback,
-  VisitProgress
+  VisitProgress,
+  TourConfig,
+  TourStep,
+  TourState,
+  TourStepProgress
 } from './types';
 
 import { EventEmitter } from './core/EventEmitter';
@@ -38,6 +42,7 @@ import { HotspotManager } from './managers/HotspotManager';
 import { InteractionManager } from './managers/InteractionManager';
 import { ShareManager } from './managers/ShareManager';
 import { I18nManager } from './managers/I18nManager';
+import { TourManager } from './managers/TourManager';
 import { generateSessionId, getPerformanceLevel } from './utils/helpers';
 
 export class MetaverseSDK {
@@ -52,6 +57,7 @@ export class MetaverseSDK {
   private interactionManager: InteractionManager;
   private shareManager: ShareManager;
   private i18nManager: I18nManager;
+  private tourManager: TourManager;
   private initialized: boolean = false;
   private destroyed: boolean = false;
 
@@ -100,13 +106,24 @@ export class MetaverseSDK {
       this.eventEmitter,
       this.logger,
       this.i18nManager,
-      this.showcaseManager
+      this.showcaseManager,
+      this.interactionManager
     );
     this.shareManager = new ShareManager(
       this.eventEmitter,
       this.logger,
       this.i18nManager,
-      this.showcaseManager
+      this.showcaseManager,
+      this.avatarManager,
+      this.hotspotManager
+    );
+    this.tourManager = new TourManager(
+      this.eventEmitter,
+      this.logger,
+      this.showcaseManager,
+      this.avatarManager,
+      this.hotspotManager,
+      this.interactionManager
     );
 
     this.setupInteractionListeners();
@@ -568,6 +585,7 @@ export class MetaverseSDK {
     this.interactionManager.destroy();
     this.shareManager.destroy();
     this.i18nManager.destroy();
+    this.tourManager.destroy();
     this.eventEmitter.destroy();
 
     this.initialized = false;
@@ -610,6 +628,88 @@ export class MetaverseSDK {
         }
       }
     });
+  }
+
+  async loadTour(config: TourConfig): Promise<void> {
+    this.ensureInitialized();
+    await this.tourManager.loadTour(config);
+  }
+
+  async startTour(tourId?: string): Promise<void> {
+    this.ensureInitialized();
+    await this.tourManager.startTour(tourId);
+  }
+
+  pauseTour(): void {
+    this.ensureInitialized();
+    this.tourManager.pauseTour();
+  }
+
+  async resumeTour(): Promise<void> {
+    this.ensureInitialized();
+    await this.tourManager.resumeTour();
+  }
+
+  async nextTourStep(): Promise<void> {
+    this.ensureInitialized();
+    await this.tourManager.nextStep();
+  }
+
+  async goToTourStep(stepIndex: number): Promise<void> {
+    this.ensureInitialized();
+    await this.tourManager.goToStep(stepIndex);
+  }
+
+  completeTourStep(stepId?: string): void {
+    this.ensureInitialized();
+    this.tourManager.completeStep(stepId);
+  }
+
+  stopTour(): void {
+    this.ensureInitialized();
+    this.tourManager.stopTour();
+  }
+
+  resetTour(): void {
+    this.ensureInitialized();
+    this.tourManager.resetTour();
+  }
+
+  getTourState(): TourState | undefined {
+    return this.tourManager.getTourState();
+  }
+
+  getCurrentTourStep(): TourStep | undefined {
+    return this.tourManager.getCurrentStep();
+  }
+
+  getTourSteps(): TourStep[] {
+    return this.tourManager.getTourSteps();
+  }
+
+  getTourStepProgress(stepId: string): TourStepProgress | undefined {
+    return this.tourManager.getStepProgress(stepId);
+  }
+
+  exportVisitProgress(): string | null {
+    this.ensureInitialized();
+    return this.interactionManager.exportVisitProgress();
+  }
+
+  importVisitProgress(json: string): VisitProgress | null {
+    const progress = this.interactionManager.importVisitProgress(json);
+    if (progress?.tourState) {
+      const tourSteps = this.tourManager.getTourSteps();
+      if (tourSteps.length > 0) {
+        const tourConfig: TourConfig = {
+          id: progress.tourState.tourId,
+          name: progress.tourState.tourId,
+          steps: tourSteps
+        };
+        this.tourManager.restoreTourState(progress.tourState, tourConfig);
+      }
+    }
+    return progress;
   }
 
   private ensureInitialized(): void {

@@ -135,6 +135,7 @@ export class InteractionManager {
         if (stored) {
           const progress = JSON.parse(stored) as VisitProgress;
           this.visitProgress.set(sessionId, progress);
+          this.activeSessionId = sessionId;
           this.logger.log(`InteractionManager: Progress loaded for session ${sessionId}`);
           return progress;
         }
@@ -143,6 +144,67 @@ export class InteractionManager {
       this.logger.warn('InteractionManager: Failed to load progress from localStorage', error);
     }
     return null;
+  }
+
+  exportVisitProgress(): string | null {
+    const progress = this.getVisitProgress();
+    if (!progress) {
+      this.logger.warn('InteractionManager: No progress to export');
+      return null;
+    }
+    try {
+      const json = JSON.stringify(progress, null, 2);
+      this.logger.log(`InteractionManager: Progress exported (${json.length} chars)`);
+      return json;
+    } catch (error) {
+      this.logger.warn('InteractionManager: Failed to export progress', error);
+      return null;
+    }
+  }
+
+  importVisitProgress(json: string): VisitProgress | null {
+    try {
+      const progress = JSON.parse(json) as VisitProgress;
+      if (!progress.sessionId || !progress.userId) {
+        this.logger.warn('InteractionManager: Invalid progress data (missing sessionId/userId)');
+        return null;
+      }
+
+      progress.viewedProducts = progress.viewedProducts || [];
+      progress.clickedHotspots = progress.clickedHotspots || [];
+      progress.claimedCoupons = progress.claimedCoupons || [];
+      progress.playedGames = progress.playedGames || [];
+      progress.duration = progress.duration || 0;
+      progress.completed = progress.completed || false;
+
+      this.visitProgress.set(progress.sessionId, progress);
+      this.activeSessionId = progress.sessionId;
+
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(
+            `metaverse_progress_${progress.sessionId}`,
+            JSON.stringify(progress)
+          );
+        }
+      } catch (e) {
+        this.logger.warn('InteractionManager: Could not persist imported progress', e);
+      }
+
+      this.logger.log(`InteractionManager: Progress imported for session ${progress.sessionId}`);
+      this.logger.log(`  - Viewed products: ${progress.viewedProducts.length}`);
+      this.logger.log(`  - Clicked hotspots: ${progress.clickedHotspots.length}`);
+      this.logger.log(`  - Claimed coupons: ${progress.claimedCoupons.length}`);
+      this.logger.log(`  - Played games: ${progress.playedGames.length}`);
+      if (progress.tourState) {
+        this.logger.log(`  - Tour steps: ${progress.tourState.stepProgress.filter(s => s.completed).length}/${progress.tourState.stepProgress.length}`);
+      }
+
+      return progress;
+    } catch (error) {
+      this.logger.warn('InteractionManager: Failed to import progress', error);
+      return null;
+    }
   }
 
   recordProductView(productId: string): void {

@@ -5,13 +5,47 @@ import {
   SharePosterConfig,
   ShareData,
   InteractionEventType,
-  Product
+  Product,
+  Hotspot,
+  HotspotType,
+  AvatarGesture
 } from '../types';
 import { EventEmitter } from '../core/EventEmitter';
 import { Logger } from '../core/Logger';
 import { I18nManager } from './I18nManager';
 import { ShowcaseManager } from './ShowcaseManager';
+import { AvatarManager, Avatar } from './AvatarManager';
+import { HotspotManager } from './HotspotManager';
 import { isBrowser, generateId } from '../utils/helpers';
+
+const HOTSPOT_ICON_SMALL: Record<HotspotType, string> = {
+  [HotspotType.PRODUCT]: '🛍️',
+  [HotspotType.INFO]: 'ℹ️',
+  [HotspotType.COUPON]: '🎟️',
+  [HotspotType.GAME]: '🎮',
+  [HotspotType.PURCHASE]: '🛒',
+  [HotspotType.LINK]: '🔗'
+};
+
+const HOTSPOT_COLORS: Record<HotspotType, string> = {
+  [HotspotType.PRODUCT]: '#4a90d9',
+  [HotspotType.INFO]: '#9b59b6',
+  [HotspotType.COUPON]: '#e67e22',
+  [HotspotType.GAME]: '#27ae60',
+  [HotspotType.PURCHASE]: '#e74c3c',
+  [HotspotType.LINK]: '#1abc9c'
+};
+
+const GESTURE_EMOJI: Record<AvatarGesture, string> = {
+  [AvatarGesture.WAVE]: '👋',
+  [AvatarGesture.POINT]: '👆',
+  [AvatarGesture.CLAP]: '👏',
+  [AvatarGesture.THINK]: '🤔',
+  [AvatarGesture.BOW]: '🙇',
+  [AvatarGesture.HAND_SHAKE]: '🤝',
+  [AvatarGesture.THUMBS_UP]: '👍',
+  [AvatarGesture.HEART]: '❤️'
+};
 
 const DEFAULT_SCREENSHOT_CONFIG: Required<ScreenshotConfig> = {
   format: 'png',
@@ -41,18 +75,24 @@ export class ShareManager implements IShareManager {
   private logger: Logger;
   private i18n: I18nManager;
   private showcaseManager: ShowcaseManager;
+  private avatarManager: AvatarManager;
+  private hotspotManager: HotspotManager;
   private canvas?: HTMLCanvasElement;
 
   constructor(
     eventEmitter: EventEmitter,
     logger: Logger,
     i18n: I18nManager,
-    showcaseManager: ShowcaseManager
+    showcaseManager: ShowcaseManager,
+    avatarManager: AvatarManager,
+    hotspotManager: HotspotManager
   ) {
     this.eventEmitter = eventEmitter;
     this.logger = logger;
     this.i18n = i18n;
     this.showcaseManager = showcaseManager;
+    this.avatarManager = avatarManager;
+    this.hotspotManager = hotspotManager;
   }
 
   async takeScreenshot(config?: ScreenshotConfig): Promise<ScreenshotResult> {
@@ -109,19 +149,25 @@ export class ShareManager implements IShareManager {
       this.drawProductCard(ctx, product, productSpacing * (idx + 1), config.height * 0.55, config);
     });
 
-    const container = this.showcaseManager.getContainer();
-    if (container) {
-      const avatars = container.querySelectorAll('.mv-avatar');
-      if (avatars.length > 0) {
-        this.drawAvatarPlaceholder(ctx, config.width / 2, config.height * 0.35, config);
-      }
-      const hotspots = container.querySelectorAll('.mv-hotspot');
-      if (hotspots.length > 0) {
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '14px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(`✨ ${hotspots.length} 个互动热点`, config.width / 2, config.height * 0.2);
-      }
+    const activeAvatar = this.avatarManager.getActiveAvatar();
+    if (activeAvatar) {
+      this.drawDetailedAvatar(ctx, activeAvatar, config.width / 2, config.height * 0.32, config);
+    }
+
+    const hotspots = this.hotspotManager.getAllHotspots();
+    if (hotspots.length > 0) {
+      this.drawAllHotspots(ctx, hotspots, config);
+    }
+
+    if (config.includeUI) {
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.textAlign = 'left';
+      const statusParts = [];
+      statusParts.push(`📦 ${products.length}商品`);
+      if (activeAvatar) statusParts.push(`🧑‍💼 ${activeAvatar.name}`);
+      statusParts.push(`🔥 ${hotspots.length}热点`);
+      ctx.fillText(statusParts.join('  |  '), 24, 36);
     }
 
     if (config.watermark) {
@@ -149,6 +195,185 @@ export class ShareManager implements IShareManager {
       width: config.width,
       height: config.height
     };
+  }
+
+  private drawDetailedAvatar(
+    ctx: CanvasRenderingContext2D,
+    avatar: Avatar,
+    x: number,
+    y: number,
+    config: Required<ScreenshotConfig>
+  ): void {
+    const scale = config.width / 1920;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(74,144,217,0.5)';
+    ctx.shadowBlur = 40 * scale;
+
+    ctx.fillStyle = '#ffe0bd';
+    ctx.beginPath();
+    ctx.arc(x, y - 40 * scale, 45 * scale, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.font = `${52 * scale}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(avatar.config.gender === 'male' ? '👨' : avatar.config.gender === 'neutral' ? '🧑' : '👩', x, y - 25 * scale);
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.25)';
+    ctx.shadowBlur = 20 * scale;
+    ctx.fillStyle = '#4a90d9';
+    this.roundRect(ctx, x - 55 * scale, y + 10 * scale, 110 * scale, 110 * scale, 55 * scale);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${18 * scale}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(avatar.name, x, y + 150 * scale);
+
+    if (avatar.isGreeting) {
+      ctx.save();
+      const badgeW = 120 * scale;
+      const badgeH = 36 * scale;
+      ctx.fillStyle = '#e74c3c';
+      ctx.shadowColor = 'rgba(231,76,60,0.6)';
+      ctx.shadowBlur = 15 * scale;
+      this.roundRect(ctx, x - badgeW / 2, y - 120 * scale, badgeW, badgeH, 18 * scale);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold ${14 * scale}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('✨ 迎宾中', x, y - 95 * scale);
+      ctx.restore();
+    }
+
+    if (avatar.currentAnimation) {
+      const gestureEmoji = Object.entries(GESTURE_EMOJI).find(
+        ([, v]) => v === avatar.currentAnimation
+      )?.[1];
+      if (gestureEmoji) {
+        ctx.font = `${44 * scale}px sans-serif`;
+        ctx.fillText(gestureEmoji, x + 80 * scale, y + 20 * scale);
+      }
+    }
+
+    if (avatar.isSpeaking) {
+      const barX = x - 30 * scale;
+      const barY = y + 75 * scale;
+      const barColors = ['#4a90d9', '#5ba0e9', '#6bb0f9'];
+      for (let i = 0; i < 3; i++) {
+        const h = (18 + Math.sin(Date.now() / 200 + i) * 8) * scale;
+        ctx.fillStyle = barColors[i];
+        ctx.fillRect(barX + i * 12 * scale, barY - h, 6 * scale, h);
+      }
+
+      this.drawSubtitleBubble(ctx, '正在为您讲解...', x, y - 160 * scale, scale);
+    }
+  }
+
+  private drawSubtitleBubble(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    scale: number
+  ): void {
+    ctx.save();
+    ctx.font = `${15 * scale}px sans-serif`;
+    const padding = 14 * scale;
+    const textW = ctx.measureText(text).width;
+    const bubbleW = textW + padding * 2;
+    const bubbleH = 36 * scale;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.shadowColor = 'rgba(0,0,0,0.15)';
+    ctx.shadowBlur = 10 * scale;
+    this.roundRect(ctx, x - bubbleW / 2, y - bubbleH / 2, bubbleW, bubbleH, 10 * scale);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(x - 8 * scale, y + bubbleH / 2 - 1);
+    ctx.lineTo(x, y + bubbleH / 2 + 10 * scale);
+    ctx.lineTo(x + 8 * scale, y + bubbleH / 2 - 1);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#333';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  }
+
+  private drawAllHotspots(
+    ctx: CanvasRenderingContext2D,
+    hotspots: Hotspot[],
+    config: Required<ScreenshotConfig>
+  ): void {
+    const scale = config.width / 1920;
+
+    hotspots.forEach((hotspot) => {
+      const posX = hotspot.position?.x ?? 0;
+      const posY = hotspot.position?.y ?? 0;
+      const x = config.width / 2 + posX * 200 * scale;
+      const y = config.height * 0.55 - posY * 100 * scale;
+      const color = HOTSPOT_COLORS[hotspot.type];
+      const icon = HOTSPOT_ICON_SMALL[hotspot.type];
+      const r = 22 * scale;
+
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      ctx.save();
+      ctx.shadowColor = color + '88';
+      ctx.shadowBlur = 12 * scale;
+      const grad = ctx.createRadialGradient(x - r / 3, y - r / 3, 2, x, y, r);
+      grad.addColorStop(0, this.lightenColor(color, 30));
+      grad.addColorStop(1, color);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2 * scale;
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.font = `${22 * scale}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(icon, x, y + 1);
+
+      if (hotspot.title) {
+        ctx.save();
+        ctx.font = `${11 * scale}px sans-serif`;
+        const labelW = ctx.measureText(hotspot.title).width + 14 * scale;
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        this.roundRect(ctx, x + r + 6 * scale, y - 10 * scale, labelW, 22 * scale, 6 * scale);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(hotspot.title, x + r + 13 * scale, y + 1 * scale);
+        ctx.restore();
+      }
+    });
+  }
+
+  private lightenColor(hex: string, percent: number): string {
+    const num = parseInt(hex.replace('#', ''), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = Math.min(255, (num >> 16) + amt);
+    const G = Math.min(255, ((num >> 8) & 0x00ff) + amt);
+    const B = Math.min(255, (num & 0x0000ff) + amt);
+    return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
   }
 
   private drawProductCard(
@@ -205,35 +430,6 @@ export class ShareManager implements IShareManager {
       const currency = product.currency || '¥';
       ctx.fillText(`${currency}${product.price}`, x, y - cardH / 2 + imgH + 50);
     }
-  }
-
-  private drawAvatarPlaceholder(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    _config: Required<ScreenshotConfig>
-  ): void {
-    ctx.save();
-    ctx.shadowColor = 'rgba(74,144,217,0.4)';
-    ctx.shadowBlur = 30;
-
-    ctx.fillStyle = '#ffe0bd';
-    ctx.beginPath();
-    ctx.arc(x, y - 30, 32, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    ctx.font = '36px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('👩', x, y - 20);
-
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.2)';
-    ctx.shadowBlur = 15;
-    ctx.fillStyle = '#4a90d9';
-    this.roundRect(ctx, x - 40, y + 5, 80, 80, 40);
-    ctx.fill();
-    ctx.restore();
   }
 
   private roundRect(

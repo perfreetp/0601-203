@@ -56,7 +56,13 @@ export enum InteractionEventType {
   GAME_START = 'game_start',
   GAME_COMPLETE = 'game_complete',
   COUPON_CLAIM = 'coupon_claim',
-  LANGUAGE_CHANGE = 'language_change'
+  LANGUAGE_CHANGE = 'language_change',
+  TOUR_START = 'tour_start',
+  TOUR_STEP_CHANGE = 'tour_step_change',
+  TOUR_PAUSE = 'tour_pause',
+  TOUR_RESUME = 'tour_resume',
+  TOUR_COMPLETE = 'tour_complete',
+  TOUR_STEP_COMPLETE = 'tour_step_complete'
 }
 
 export enum Language {
@@ -267,6 +273,53 @@ export interface GameReward {
   probability?: number;
 }
 
+export interface TourStep {
+  id: string;
+  title: string;
+  description?: string;
+  productId?: string;
+  hotspotId?: string;
+  focusPosition?: Vector3;
+  cameraTarget?: Vector3;
+  avatarGreeting?: string;
+  avatarGesture?: AvatarGesture;
+  avatarSpeech?: string;
+  highlightHotspotIds?: string[];
+  minDuration?: number;
+  autoAdvance?: boolean;
+  autoAdvanceDelay?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TourStepProgress {
+  stepId: string;
+  completed: boolean;
+  startTime?: number;
+  endTime?: number;
+  duration: number;
+  completedAt?: number;
+}
+
+export interface TourConfig {
+  id: string;
+  name: string;
+  description?: string;
+  steps: TourStep[];
+  loop?: boolean;
+  autoStart?: boolean;
+}
+
+export interface TourState {
+  tourId: string;
+  currentStepIndex: number;
+  isPlaying: boolean;
+  isPaused: boolean;
+  isCompleted: boolean;
+  stepProgress: TourStepProgress[];
+  startTime?: number;
+  endTime?: number;
+}
+
 export interface VisitProgress {
   userId: string;
   sessionId: string;
@@ -279,6 +332,7 @@ export interface VisitProgress {
   playedGames: string[];
   currentPosition?: Vector3;
   completed: boolean;
+  tourState?: TourState;
 }
 
 export interface SharePosterConfig {
