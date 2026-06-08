@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>元宇宙展柜 SDK - 演示页面</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #fff;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 10px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #aaa;
+      margin-bottom: 20px;
+    }
+
+    #showcase-container {
+      width: 100%;
+      height: 600px;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      margin-bottom: 20px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .control-group {
+      background: #16213e;
+      padding: 16px;
+      border-radius: 12px;
+      border: 1px solid #2d3a5c;
+    }
+
+    .control-group h3 {
+      font-size: 14px;
+      margin-bottom: 12px;
+      color: #667eea;
+    }
+
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 4px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    .log-panel {
+      background: #0f0f23;
+      border-radius: 12px;
+      padding: 16px;
+      max-height: 300px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      border: 1px solid #2d3a5c;
+    }
+
+    .log-panel h3 {
+      font-size: 14px;
+      margin-bottom: 12px;
+      color: #667eea;
+      font-family: -apple-system, sans-serif;
+    }
+
+    .log-entry {
+      padding: 6px 8px;
+      border-bottom: 1px solid #1e1e3a;
+      color: #ccc;
+    }
+
+    .log-entry .time {
+      color: #666;
+      margin-right: 8px;
+    }
+
+    .log-entry.success {
+      color: #4ade80;
+    }
+
+    .log-entry.event {
+      color: #60a5fa;
+    }
+
+    .log-entry.error {
+      color: #f87171;
+    }
+
+    .images-panel {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    .image-card {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 12px;
+      border: 1px solid #2d3a5c;
+    }
+
+    .image-card h4 {
+      font-size: 13px;
+      margin-bottom: 8px;
+      color: #aaa;
+    }
+
+    .image-card img {
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid #2d3a5c;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>✨ 元宇宙展柜 SDK 演示</h1>
+    <p class="subtitle">轻量虚拟展柜 + 数字人导购 · 无需3D引擎的CSS 3D渲染</p>
+
+    <div id="showcase-container"></div>
+
+    <div class="controls">
+      <div class="control-group">
+        <h3>🧑‍💼 数字人导购</h3>
+        <button onclick="sdk.greet()">迎宾问候</button>
+        <button onclick="sdk.playGesture(window.AvatarGesture.WAVE)">👋 挥手</button>
+        <button onclick="sdk.playGesture(window.AvatarGesture.THUMBS_UP)">👍 点赞</button>
+        <button onclick="sdk.playGesture(window.AvatarGesture.CLAP)">👏 鼓掌</button>
+        <button onclick="sdk.playGesture(window.AvatarGesture.HEART)">❤️ 比心</button>
+        <button onclick="sdk.speak({ text: '感谢您参观我们的虚拟展厅，祝您购物愉快！' })">说话演示</button>
+      </div>
+
+      <div class="control-group">
+        <h3>🔥 热点交互</h3>
+        <button onclick="sdk.clickHotspot('hotspot-product-1')">查看商品1</button>
+        <button onclick="sdk.clickHotspot('hotspot-product-2')">查看商品2</button>
+        <button onclick="sdk.clickHotspot('hotspot-coupon-1')">领取优惠券</button>
+        <button onclick="sdk.clickHotspot('hotspot-purchase-1')">购买入口</button>
+        <button onclick="sdk.clickHotspot('hotspot-game-1')">启动小游戏</button>
+      </div>
+
+      <div class="control-group">
+        <h3>📸 分享与海报</h3>
+        <button onclick="takeScreenshot()">生成截图</button>
+        <button onclick="generatePoster()">生成海报(带QR)</button>
+        <button onclick="generatePosterNoQR()">生成海报(无QR)</button>
+      </div>
+
+      <div class="control-group">
+        <h3>📊 参观进度</h3>
+        <button onclick="saveProgress()">保存进度</button>
+        <button onclick="showProgress()">查看进度</button>
+      </div>
+
+      <div class="control-group">
+        <h3>🎨 主题切换</h3>
+        <button onclick="sdk.setTheme(window.SceneTheme.LUXURY)">奢华</button>
+        <button onclick="sdk.setTheme(window.SceneTheme.MINIMAL)">极简</button>
+        <button onclick="sdk.setTheme(window.SceneTheme.FUTURISTIC)">未来</button>
+        <button onclick="sdk.setTheme(window.SceneTheme.RETRO)">复古</button>
+        <button onclick="sdk.setTheme(window.SceneTheme.NATURE)">自然</button>
+      </div>
+
+      <div class="control-group">
+        <h3>⚙️ 性能控制</h3>
+        <button onclick="sdk.setEffectsEnabled(true)">开启特效</button>
+        <button onclick="sdk.setEffectsEnabled(false)">关闭特效</button>
+        <button onclick="sdk.setAutoRotate(true)">开启旋转</button>
+        <button onclick="sdk.setAutoRotate(false)">停止旋转</button>
+      </div>
+    </div>
+
+    <div class="log-panel">
+      <h3>📋 事件日志</h3>
+      <div id="log-entries"></div>
+    </div>
+
+    <div class="images-panel" id="images-panel"></div>
+  </div>
+
+  <script src="../dist/index.umd.js"></script>
+  <script>
+    const { MetaverseSDK, SceneTheme, Language, LightPreset, HotspotType, AvatarGender, AvatarGesture, InteractionEventType } = window.MetaverseSDK;
+    window.SceneTheme = SceneTheme;
+    window.AvatarGesture = AvatarGesture;
+
+    let sdk;
+
+    function log(message, type = '') {
+      const entries = document.getElementById('log-entries');
+      const entry = document.createElement('div');
+      entry.className = 'log-entry ' + type;
+      const time = new Date().toLocaleTimeString();
+      entry.innerHTML = `<span class="time">[${time}]</span>${message}`;
+      entries.insertBefore(entry, entries.firstChild);
+      console.log(message);
+    }
+
+    async function init() {
+      try {
+        sdk = new MetaverseSDK({
+          containerId: 'showcase-container',
+          appId: 'demo-app',
+          userId: 'demo-user',
+          theme: SceneTheme.FUTURISTIC,
+          language: Language.ZH_CN,
+          enableEffects: true,
+          enableAudio: true,
+          autoPlay: true,
+          debug: true
+        });
+
+        sdk.on(InteractionEventType.HOTSPOT_CLICK, (e) => {
+          log(`🔘 热点点击: ${e.data?.hotspotId} (${e.data?.hotspotType})`, 'event');
+        });
+        sdk.on(InteractionEventType.COUPON_CLAIM, (e) => {
+          log(`🎟️ 优惠券领取: ${e.data?.couponTitle}`, 'success');
+        });
+        sdk.on(InteractionEventType.PURCHASE_INTENT, (e) => {
+          log(`🛒 购买意图: 商品ID=${e.data?.productId || '全部'}`, 'event');
+        });
+        sdk.on(InteractionEventType.GAME_START, (e) => {
+          log(`🎮 游戏启动: ${e.data?.gameName}`, 'event');
+        });
+        sdk.on(InteractionEventType.SCREENSHOT, (e) => {
+          log(`📸 截图生成: ${e.data?.width}x${e.data?.height}`, 'success');
+        });
+
+        await sdk.init();
+        log('✅ SDK 初始化成功', 'success');
+
+        sdk.setLightPreset(LightPreset.STUDIO);
+        sdk.setAutoRotate(true, 0.3);
+
+        await sdk.loadProducts([
+          {
+            id: 'product-001',
+            name: '限量版运动鞋',
+            description: '高端定制款运动鞋，采用最新科技材料',
+            price: 1299,
+            currency: 'CNY',
+            thumbnailUrl: '',
+            position: { x: -2, y: 0, z: 0 }
+          },
+          {
+            id: 'product-002',
+            name: '智能手表 Pro',
+            description: '全新一代智能手表，健康监测更精准',
+            price: 2499,
+            currency: 'CNY',
+            thumbnailUrl: '',
+            position: { x: 2, y: 0, z: 0 }
+          }
+        ]);
+        log('📦 商品加载完成');
+
+        sdk.setProductDescription({
+          productId: 'product-001',
+          title: '限量版运动鞋',
+          content: '采用最新飞织技术，轻盈透气，缓震效果出色。鞋底搭载气垫科技，每一步都如踩云端。',
+          specs: { '鞋面材质': '飞织面料', '鞋底材质': '气垫橡胶', '重量': '280g' }
+        });
+
+        sdk.setProductDescription({
+          productId: 'product-002',
+          title: '智能手表 Pro',
+          content: '全新一代健康监测芯片，24小时心率、血氧、睡眠监测。续航长达7天。',
+          specs: { '屏幕': 'AMOLED 1.9寸', '续航': '7天', '防水': '50米' }
+        });
+
+        await sdk.createAvatar({
+          name: '小美',
+          gender: AvatarGender.FEMALE,
+          greetingText: '您好！欢迎来到我们的虚拟展厅，我是您的专属导购小美~',
+          position: { x: 0, y: 0, z: -3 }
+        });
+        log('🧑‍💼 数字人导购已创建');
+
+        sdk.addHotspots([
+          { id: 'hotspot-product-1', type: HotspotType.PRODUCT, position: { x: -2, y: 1.5, z: 0 }, productId: 'product-001', title: '查看详情' },
+          { id: 'hotspot-product-2', type: HotspotType.PRODUCT, position: { x: 2, y: 1.5, z: 0 }, productId: 'product-002', title: '查看详情' },
+          { id: 'hotspot-coupon-1', type: HotspotType.COUPON, position: { x: 0, y: 2, z: 2 }, title: '领取优惠券' },
+          { id: 'hotspot-purchase-1', type: HotspotType.PURCHASE, position: { x: 0, y: 1, z: -2 }, title: '立即购买' },
+          { id: 'hotspot-game-1', type: HotspotType.GAME, position: { x: 3, y: 1.5, z: -2 }, title: '幸运抽奖' }
+        ]);
+        log('🔥 热点已添加');
+
+        sdk.addCoupons([
+          { id: 'coupon-001', title: '新用户满减券', description: '满500减100', discountType: 'fixed', discountValue: 100, minPurchaseAmount: 500, expiryDate: '2025-12-31' },
+          { id: 'coupon-002', title: '全场8折券', discountType: 'percentage', discountValue: 20 }
+        ]);
+
+        sdk.addGames([{
+          id: 'game-lucky-001', name: '幸运大转盘', type: 'lucky_draw',
+          rewards: [
+            { id: 'r1', name: '50元优惠券', type: 'coupon', value: 50, probability: 0.3 }
+          ]
+        }]);
+
+        log('🎊 演示已就绪！点击上方按钮或直接点击展柜中的热点进行交互');
+      } catch (err) {
+        log('❌ 初始化失败: ' + err.message, 'error');
+        console.error(err);
+      }
+    }
+
+    async function takeScreenshot() {
+      try {
+        const result = await sdk.takeScreenshot({ width: 1280, height: 720, watermark: 'Metaverse SDK Demo' });
+        showImage('📸 最新截图', result.dataUrl);
+        log('📸 截图已生成', 'success');
+      } catch (err) {
+        log('❌ 截图失败: ' + err.message, 'error');
+      }
+    }
+
+    async function generatePoster() {
+      try {
+        const result = await sdk.generatePoster({
+          title: '品牌虚拟展厅',
+          subtitle: '点击进入元宇宙购物体验',
+          includeQRCode: true,
+          watermark: 'Brand Demo'
+        });
+        showImage('🖼️ 分享海报(带二维码)', result.dataUrl);
+        log('🖼️ 海报已生成(带二维码)', 'success');
+      } catch (err) {
+        log('❌ 海报生成失败: ' + err.message, 'error');
+      }
+    }
+
+    async function generatePosterNoQR() {
+      try {
+        const result = await sdk.generatePoster({
+          title: '品牌虚拟展厅',
+          subtitle: '点击进入元宇宙购物体验',
+          includeQRCode: false,
+          watermark: 'Brand Demo'
+        });
+        showImage('🖼️ 分享海报(无二维码)', result.dataUrl);
+        log('🖼️ 海报已生成(无二维码)', 'success');
+      } catch (err) {
+        log('❌ 海报生成失败: ' + err.message, 'error');
+      }
+    }
+
+    function showImage(title, dataUrl) {
+      const panel = document.getElementById('images-panel');
+      const card = document.createElement('div');
+      card.className = 'image-card';
+      card.innerHTML = `<h4>${title}</h4><img src="${dataUrl}" alt="${title}">`;
+      panel.insertBefore(card, panel.firstChild);
+    }
+
+    function saveProgress() {
+      const progress = sdk.saveVisitProgress();
+      if (progress) {
+        log(`💾 进度已保存: sessionId=${progress.sessionId}`, 'success');
+        log(`   浏览商品: ${progress.viewedProducts.join(', ') || '无'}`);
+        log(`   点击热点: ${progress.clickedHotspots.join(', ') || '无'}`);
+        log(`   领取优惠券: ${progress.claimedCoupons.join(', ') || '无'}`);
+        log(`   玩过的游戏: ${progress.playedGames.join(', ') || '无'}`);
+      }
+    }
+
+    function showProgress() {
+      const progress = sdk.getVisitProgress();
+      if (progress) {
+        log(`📊 当前进度:`, 'event');
+        log(`   浏览商品: ${progress.viewedProducts.join(', ') || '无'}`);
+        log(`   点击热点: ${progress.clickedHotspots.join(', ') || '无'}`);
+        log(`   领取优惠券: ${progress.claimedCoupons.join(', ') || '无'}`);
+        log(`   玩过的游戏: ${progress.playedGames.join(', ') || '无'}`);
+        log(`   参观时长: ${Math.floor(sdk.getTotalVisitDuration() / 1000)}秒`);
+      } else {
+        log('⚠️ 暂无参观进度，请先开始参观');
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>

@@ -10,7 +10,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc && rollup -c",
+    "build": "tsc && rollup -c --bundleConfigAsCjs",
     "dev": "tsc -w",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",

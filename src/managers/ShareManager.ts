@@ -4,11 +4,13 @@ import {
   ScreenshotResult,
   SharePosterConfig,
   ShareData,
-  InteractionEventType
+  InteractionEventType,
+  Product
 } from '../types';
 import { EventEmitter } from '../core/EventEmitter';
 import { Logger } from '../core/Logger';
 import { I18nManager } from './I18nManager';
+import { ShowcaseManager } from './ShowcaseManager';
 import { isBrowser, generateId } from '../utils/helpers';
 
 const DEFAULT_SCREENSHOT_CONFIG: Required<ScreenshotConfig> = {
@@ -38,12 +40,19 @@ export class ShareManager implements IShareManager {
   private eventEmitter: EventEmitter;
   private logger: Logger;
   private i18n: I18nManager;
+  private showcaseManager: ShowcaseManager;
   private canvas?: HTMLCanvasElement;
 
-  constructor(eventEmitter: EventEmitter, logger: Logger, i18n: I18nManager) {
+  constructor(
+    eventEmitter: EventEmitter,
+    logger: Logger,
+    i18n: I18nManager,
+    showcaseManager: ShowcaseManager
+  ) {
     this.eventEmitter = eventEmitter;
     this.logger = logger;
     this.i18n = i18n;
+    this.showcaseManager = showcaseManager;
   }
 
   async takeScreenshot(config?: ScreenshotConfig): Promise<ScreenshotResult> {
@@ -76,22 +85,54 @@ export class ShareManager implements IShareManager {
       throw new Error('Failed to get 2D context');
     }
 
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, config.width, config.height);
+    const themeStyles = this.showcaseManager.getThemeStyles();
 
     const gradient = ctx.createLinearGradient(0, 0, config.width, config.height);
-    gradient.addColorStop(0, '#667eea');
-    gradient.addColorStop(1, '#764ba2');
+    const colors = themeStyles.bg.match(/#[a-fA-F0-9]{6}|rgba?\([^)]+\)/g) || ['#1a1a2e', '#0f3460'];
+    gradient.addColorStop(0, colors[0] || '#1a1a2e');
+    gradient.addColorStop(1, colors[colors.length - 1] || '#0f3460');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, config.width, config.height);
 
+    const floorY = config.height * 0.7;
+    const floorGrad = ctx.createLinearGradient(0, floorY, 0, config.height);
+    floorGrad.addColorStop(0, 'rgba(255,255,255,0.05)');
+    floorGrad.addColorStop(1, 'rgba(0,0,0,0.2)');
+    ctx.fillStyle = floorGrad;
+    ctx.beginPath();
+    ctx.ellipse(config.width / 2, config.height, config.width * 0.45, config.height * 0.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const products = this.showcaseManager.getAllProducts();
+    const productSpacing = config.width / (products.length + 1);
+    products.forEach((product, idx) => {
+      this.drawProductCard(ctx, product, productSpacing * (idx + 1), config.height * 0.55, config);
+    });
+
+    const container = this.showcaseManager.getContainer();
+    if (container) {
+      const avatars = container.querySelectorAll('.mv-avatar');
+      if (avatars.length > 0) {
+        this.drawAvatarPlaceholder(ctx, config.width / 2, config.height * 0.35, config);
+      }
+      const hotspots = container.querySelectorAll('.mv-hotspot');
+      if (hotspots.length > 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`✨ ${hotspots.length} 个互动热点`, config.width / 2, config.height * 0.2);
+      }
+    }
+
     if (config.watermark) {
       ctx.save();
-      ctx.globalAlpha = 0.3;
+      ctx.globalAlpha = 0.25;
       ctx.fillStyle = '#ffffff';
-      ctx.font = '20px sans-serif';
-      ctx.rotate(-Math.PI / 6);
-      ctx.fillText(config.watermark, 50, config.height - 100);
+      ctx.font = '24px sans-serif';
+      ctx.rotate(-Math.PI / 8);
+      for (let y = 0; y < config.height * 1.5; y += 120) {
+        ctx.fillText(config.watermark, -config.width * 0.2, y);
+      }
       ctx.restore();
     }
 
@@ -108,6 +149,112 @@ export class ShareManager implements IShareManager {
       width: config.width,
       height: config.height
     };
+  }
+
+  private drawProductCard(
+    ctx: CanvasRenderingContext2D,
+    product: Product,
+    x: number,
+    y: number,
+    config: Required<ScreenshotConfig>
+  ): void {
+    const cardW = Math.min(180, config.width / 5);
+    const cardH = cardW * 1.4;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 20;
+    ctx.shadowOffsetY = 8;
+
+    const themeStyles = this.showcaseManager.getThemeStyles();
+    ctx.fillStyle = '#ffffff';
+    this.roundRect(ctx, x - cardW / 2, y - cardH / 2, cardW, cardH, 12);
+    ctx.fill();
+    ctx.restore();
+
+    const imgH = cardH * 0.5;
+    if (product.thumbnailUrl) {
+      ctx.fillStyle = '#f0f0f0';
+      this.roundRect(ctx, x - cardW / 2 + 8, y - cardH / 2 + 8, cardW - 16, imgH - 8, 8);
+      ctx.fill();
+      ctx.fillStyle = '#999';
+      ctx.font = '24px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('📦', x, y - cardH / 2 + imgH / 2 + 8);
+    } else {
+      const gradient = ctx.createLinearGradient(x - cardW / 2 + 8, y - cardH / 2 + 8, x + cardW / 2 - 8, y - cardH / 2 + imgH);
+      gradient.addColorStop(0, themeStyles.accent + '22');
+      gradient.addColorStop(1, themeStyles.accent + '44');
+      ctx.fillStyle = gradient;
+      this.roundRect(ctx, x - cardW / 2 + 8, y - cardH / 2 + 8, cardW - 16, imgH - 8, 8);
+      ctx.fill();
+      ctx.font = '32px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🛍️', x, y - cardH / 2 + imgH / 2 + 12);
+    }
+
+    ctx.fillStyle = '#333';
+    ctx.font = `bold ${Math.max(12, cardW / 12)}px sans-serif`;
+    ctx.textAlign = 'center';
+    const name = product.name.length > 8 ? product.name.substring(0, 8) + '...' : product.name;
+    ctx.fillText(name, x, y - cardH / 2 + imgH + 28);
+
+    if (product.price !== undefined) {
+      ctx.fillStyle = '#e74c3c';
+      ctx.font = `bold ${Math.max(14, cardW / 10)}px sans-serif`;
+      const currency = product.currency || '¥';
+      ctx.fillText(`${currency}${product.price}`, x, y - cardH / 2 + imgH + 50);
+    }
+  }
+
+  private drawAvatarPlaceholder(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    _config: Required<ScreenshotConfig>
+  ): void {
+    ctx.save();
+    ctx.shadowColor = 'rgba(74,144,217,0.4)';
+    ctx.shadowBlur = 30;
+
+    ctx.fillStyle = '#ffe0bd';
+    ctx.beginPath();
+    ctx.arc(x, y - 30, 32, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.font = '36px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('👩', x, y - 20);
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.2)';
+    ctx.shadowBlur = 15;
+    ctx.fillStyle = '#4a90d9';
+    this.roundRect(ctx, x - 40, y + 5, 80, 80, 40);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private roundRect(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    r: number
+  ): void {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
   }
 
   async generatePoster(config?: SharePosterConfig): Promise<ScreenshotResult> {
@@ -141,12 +288,9 @@ export class ShareManager implements IShareManager {
       throw new Error('Failed to get 2D context');
     }
 
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, config.width, config.height);
-
     const gradient = ctx.createLinearGradient(0, 0, 0, config.height);
     gradient.addColorStop(0, '#1a1a2e');
-    gradient.addColorStop(0.5, '#16213e');
+    gradient.addColorStop(0.4, '#16213e');
     gradient.addColorStop(1, '#0f3460');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, config.width, config.height);
@@ -155,6 +299,8 @@ export class ShareManager implements IShareManager {
       try {
         const img = await this.loadImage(config.backgroundImageUrl);
         ctx.drawImage(img, 0, 0, config.width, config.height);
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0, 0, config.width, config.height);
       } catch (error) {
         this.logger.warn('ShareManager: Failed to load background image', error);
       }
@@ -166,66 +312,128 @@ export class ShareManager implements IShareManager {
       try {
         const logo = await this.loadImage(config.logoUrl);
         const logoSize = 80;
+        ctx.save();
+        ctx.shadowColor = 'rgba(255,255,255,0.3)';
+        ctx.shadowBlur = 20;
         ctx.drawImage(logo, centerX - logoSize / 2, 60, logoSize, logoSize);
+        ctx.restore();
       } catch (error) {
         this.logger.warn('ShareManager: Failed to load logo', error);
       }
+    } else {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '48px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🏪', centerX, 130);
     }
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 42px sans-serif';
+    ctx.font = 'bold 40px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(config.title, centerX, 200);
+    ctx.fillText(config.title, centerX, 220);
 
     if (config.subtitle) {
-      ctx.font = '24px sans-serif';
-      ctx.globalAlpha = 0.8;
-      ctx.fillText(config.subtitle, centerX, 250);
+      ctx.font = '22px sans-serif';
+      ctx.globalAlpha = 0.85;
+      ctx.fillText(config.subtitle, centerX, 260);
       ctx.globalAlpha = 1;
     }
 
-    const qrSize = 200;
-    const qrY = config.height - qrSize - 180;
+    const showcaseY = 300;
+    const showcaseH = Math.min(500, config.height * 0.38);
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    this.roundRect(ctx, 30, showcaseY, config.width - 60, showcaseH, 20);
+    ctx.fill();
 
-    ctx.fillStyle = '#ffffff';
-    const qrPadding = 10;
-    ctx.fillRect(
-      centerX - qrSize / 2 - qrPadding,
-      qrY - qrPadding,
-      qrSize + qrPadding * 2,
-      qrSize + qrPadding * 2
-    );
+    const products = this.showcaseManager.getAllProducts();
+    const displayProducts = products.slice(0, 3);
+    const productAreaY = showcaseY + showcaseH / 2;
 
-    ctx.strokeStyle = '#333333';
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 8; i++) {
-      for (let j = 0; j < 8; j++) {
-        if ((i + j) % 2 === 0) {
-          ctx.fillStyle = '#000000';
-          ctx.fillRect(
-            centerX - qrSize / 2 + i * (qrSize / 8),
-            qrY + j * (qrSize / 8),
-            qrSize / 8,
-            qrSize / 8
-          );
-        }
+    if (displayProducts.length > 0) {
+      const spacing = (config.width - 60) / (displayProducts.length + 1);
+      displayProducts.forEach((product, idx) => {
+        const px = 30 + spacing * (idx + 1);
+        this.drawProductCard(ctx, product, px, productAreaY, {
+          format: config.format,
+          quality: config.quality,
+          width: 300,
+          height: 400,
+          includeUI: true,
+          watermark: ''
+        });
+      });
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.font = '18px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('✨ 精选商品等你来探索', centerX, productAreaY);
+    }
+
+    const container = this.showcaseManager.getContainer();
+    if (container) {
+      const avatars = container.querySelectorAll('.mv-avatar');
+      const hotspots = container.querySelectorAll('.mv-hotspot');
+      if (avatars.length > 0 || hotspots.length > 0) {
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        const parts: string[] = [];
+        if (avatars.length > 0) parts.push(`${avatars.length} 位数字导购`);
+        if (hotspots.length > 0) parts.push(`${hotspots.length} 个互动点`);
+        ctx.fillText(parts.join(' · '), centerX, showcaseY + showcaseH - 30);
       }
     }
 
     if (config.includeQRCode) {
+      const qrSize = 180;
+      const qrY = config.height - qrSize - 160;
+
       ctx.fillStyle = '#ffffff';
-      ctx.font = '18px sans-serif';
-      ctx.fillText('扫码体验', centerX, qrY + qrSize + 40);
+      const qrPadding = 12;
+      this.roundRect(
+        ctx,
+        centerX - qrSize / 2 - qrPadding,
+        qrY - qrPadding,
+        qrSize + qrPadding * 2,
+        qrSize + qrPadding * 2,
+        12
+      );
+      ctx.fill();
+
+      if (config.qrCodeUrl) {
+        try {
+          const qrImg = await this.loadImage(config.qrCodeUrl);
+          ctx.drawImage(qrImg, centerX - qrSize / 2, qrY, qrSize, qrSize);
+        } catch {
+          this.drawQRPattern(ctx, centerX, qrY + qrSize / 2, qrSize);
+        }
+      } else {
+        this.drawQRPattern(ctx, centerX, qrY + qrSize / 2, qrSize);
+      }
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '16px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('扫码立即体验', centerX, qrY + qrSize + 40);
+    } else {
+      const callToActionY = config.height - 120;
+      ctx.fillStyle = 'rgba(255,255,255,0.1)';
+      this.roundRect(ctx, centerX - 140, callToActionY, 280, 56, 28);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('立即进入虚拟展厅', centerX, callToActionY + 36);
     }
 
     if (config.watermark) {
       ctx.save();
-      ctx.globalAlpha = 0.15;
+      ctx.globalAlpha = 0.12;
       ctx.fillStyle = '#ffffff';
-      ctx.font = '16px sans-serif';
+      ctx.font = '18px sans-serif';
       ctx.rotate(-Math.PI / 8);
-      for (let y = 0; y < config.height; y += 150) {
-        ctx.fillText(config.watermark, -100, y);
+      for (let y = 0; y < config.height * 1.5; y += 140) {
+        ctx.fillText(config.watermark, -config.width * 0.3, y);
       }
       ctx.restore();
     }
@@ -243,6 +451,44 @@ export class ShareManager implements IShareManager {
       width: config.width,
       height: config.height
     };
+  }
+
+  private drawQRPattern(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    size: number
+  ): void {
+    const gridSize = 21;
+    const cellSize = size / gridSize;
+    const startX = cx - size / 2;
+    const startY = cy - size / 2;
+
+    for (let i = 0; i < gridSize; i++) {
+      for (let j = 0; j < gridSize; j++) {
+        const isFinderCorner =
+          (i < 7 && j < 7) ||
+          (i < 7 && j >= gridSize - 7) ||
+          (i >= gridSize - 7 && j < 7);
+
+        if (isFinderCorner) {
+          const isOuter = i === 0 || i === 6 || j === 0 || j === 6 ||
+            (i >= gridSize - 7 && (i === gridSize - 7 || i === gridSize - 1)) ||
+            (j >= gridSize - 7 && (j === gridSize - 7 || j === gridSize - 1));
+          const isInner = (i >= 2 && i <= 4 && j >= 2 && j <= 4) ||
+            (i >= 2 && i <= 4 && j >= gridSize - 5 && j <= gridSize - 3) ||
+            (i >= gridSize - 5 && i <= gridSize - 3 && j >= 2 && j <= 4);
+
+          if (isOuter || isInner) {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(startX + j * cellSize, startY + i * cellSize, cellSize, cellSize);
+          }
+        } else if ((i * 3 + j * 7) % 2 === 0) {
+          ctx.fillStyle = '#000000';
+          ctx.fillRect(startX + j * cellSize, startY + i * cellSize, cellSize, cellSize);
+        }
+      }
+    }
   }
 
   async shareToPlatform(platform: string, data: ShareData): Promise<void> {

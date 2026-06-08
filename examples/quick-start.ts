@@ -226,6 +226,32 @@ async function quickStart() {
 
   const progress = sdk.saveVisitProgress();
   console.log('参观进度已保存:', progress?.sessionId);
+  console.log('已浏览商品:', progress?.viewedProducts);
+  console.log('已点击热点:', progress?.clickedHotspots);
+  console.log('已领取优惠券:', progress?.claimedCoupons);
+  console.log('已玩小游戏:', progress?.playedGames);
+
+  if (progress?.sessionId) {
+    const restoredProgress = sdk.loadVisitProgress(progress.sessionId);
+    console.log('从 sessionId 恢复的进度:', restoredProgress?.viewedProducts);
+  }
+
+  const posterNoQR = await sdk.generatePoster({
+    title: '品牌虚拟展厅',
+    subtitle: '点击进入元宇宙购物体验',
+    includeQRCode: false,
+    watermark: 'Brand Name'
+  });
+  console.log('无二维码海报已生成:', posterNoQR.dataUrl.substring(0, 50) + '...');
+
+  const posterWithQRUrl = await sdk.generatePoster({
+    title: '品牌虚拟展厅',
+    subtitle: '扫码进入元宇宙购物体验',
+    includeQRCode: true,
+    qrCodeUrl: 'https://example.com/qrcode.png',
+    watermark: 'Brand Name'
+  });
+  console.log('带二维码URL海报已生成:', posterWithQRUrl.dataUrl.substring(0, 50) + '...');
 
   sdk.on(InteractionEventType.FEEDBACK_SUBMIT, (event) => {
     console.log('反馈已提交:', event.data);

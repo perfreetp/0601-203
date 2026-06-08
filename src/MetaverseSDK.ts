@@ -75,11 +75,6 @@ export class MetaverseSDK {
       audioEnabled: config.enableAudio !== false
     };
 
-    this.i18nManager = new I18nManager(
-      this.state.currentLanguage,
-      this.eventEmitter,
-      this.logger
-    );
     this.showcaseManager = new ShowcaseManager(
       config.containerId,
       this.eventEmitter,
@@ -88,15 +83,33 @@ export class MetaverseSDK {
       this.state.performanceLevel,
       this.state.effectsEnabled
     );
+    this.i18nManager = new I18nManager(
+      this.state.currentLanguage,
+      this.eventEmitter,
+      this.logger
+    );
+    this.interactionManager = new InteractionManager(this.eventEmitter, this.logger);
     this.avatarManager = new AvatarManager(
       this.eventEmitter,
       this.logger,
       this.i18nManager,
+      this.showcaseManager,
       this.state.audioEnabled
     );
-    this.hotspotManager = new HotspotManager(this.eventEmitter, this.logger, this.i18nManager);
-    this.interactionManager = new InteractionManager(this.eventEmitter, this.logger);
-    this.shareManager = new ShareManager(this.eventEmitter, this.logger, this.i18nManager);
+    this.hotspotManager = new HotspotManager(
+      this.eventEmitter,
+      this.logger,
+      this.i18nManager,
+      this.showcaseManager
+    );
+    this.shareManager = new ShareManager(
+      this.eventEmitter,
+      this.logger,
+      this.i18nManager,
+      this.showcaseManager
+    );
+
+    this.setupInteractionListeners();
 
     this.logger.log('MetaverseSDK: Instance created');
   }
@@ -169,11 +182,19 @@ export class MetaverseSDK {
   async loadProduct(product: Product): Promise<void> {
     this.ensureInitialized();
     await this.showcaseManager.loadProduct(product);
+    if (!this.interactionManager.getActiveSessionId()) {
+      this.interactionManager.startVisit(this.config.userId);
+    }
+    this.interactionManager.recordProductView(product.id);
   }
 
   async loadProducts(products: Product[]): Promise<void> {
     this.ensureInitialized();
     await this.showcaseManager.loadProducts(products);
+    if (!this.interactionManager.getActiveSessionId()) {
+      this.interactionManager.startVisit(this.config.userId);
+    }
+    products.forEach((p) => this.interactionManager.recordProductView(p.id));
   }
 
   getProduct(productId: string): Product | undefined {
@@ -554,6 +575,41 @@ export class MetaverseSDK {
     this.state.initialized = false;
 
     this.logger.log('MetaverseSDK: Destroyed');
+  }
+
+  private setupInteractionListeners(): void {
+    this.eventEmitter.on(InteractionEventType.HOTSPOT_CLICK, (event) => {
+      const hotspotId = event.data?.hotspotId as string;
+      if (hotspotId) {
+        if (!this.interactionManager.getActiveSessionId()) {
+          this.interactionManager.startVisit(this.config.userId);
+        }
+        this.interactionManager.recordHotspotClick(hotspotId);
+      }
+    });
+
+    this.eventEmitter.on(InteractionEventType.COUPON_CLAIM, (event) => {
+      const couponId = event.data?.couponId as string;
+      if (couponId) {
+        if (!this.interactionManager.getActiveSessionId()) {
+          this.interactionManager.startVisit(this.config.userId);
+        }
+        this.interactionManager.recordCouponClaim(couponId);
+      }
+    });
+
+    this.eventEmitter.on(InteractionEventType.GAME_START, (event) => {
+      const gameId = event.data?.gameId as string;
+      if (gameId) {
+        if (!this.interactionManager.getActiveSessionId()) {
+          this.interactionManager.startVisit(this.config.userId);
+        }
+        const progress = this.interactionManager.getVisitProgress();
+        if (progress && !progress.playedGames.includes(gameId)) {
+          progress.playedGames.push(gameId);
+        }
+      }
+    });
   }
 
   private ensureInitialized(): void {
