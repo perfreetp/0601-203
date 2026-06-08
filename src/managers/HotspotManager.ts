@@ -14,7 +14,7 @@ import { Logger } from '../core/Logger';
 import { I18nManager } from './I18nManager';
 import { ShowcaseManager } from './ShowcaseManager';
 import { InteractionManager } from './InteractionManager';
-import { isBrowser } from '../utils/helpers';
+import { isBrowser, generateId } from '../utils/helpers';
 
 const HOTSPOT_ICONS: Record<HotspotType, string> = {
   [HotspotType.PRODUCT]: '🛍️',
@@ -629,10 +629,11 @@ export class HotspotManager {
     playBtn.textContent = '开始游戏';
 
     const handleComplete = () => {
-      const reward = this.interactionManager.completeGame(game.id);
-      if (reward) {
-        this.handleGameReward(reward);
-        this.showGameResult(reward);
+      const tempReward = this.interactionManager.completeGame(game.id);
+      if (tempReward) {
+        const matchedCoupon = this.handleGameReward(tempReward);
+        this.interactionManager.completeGame(game.id, tempReward, matchedCoupon?.id);
+        this.showGameResult(tempReward);
       } else {
         this.showPopup({
           title: '游戏完成',
@@ -659,22 +660,96 @@ export class HotspotManager {
     uiLayer.appendChild(panel);
   }
 
-  private handleGameReward(reward: GameReward): void {
-    if (reward.type === 'coupon' && typeof reward.value === 'string') {
-      const couponId = reward.value;
-      const coupon = this.getCoupon(couponId);
-      if (coupon && !coupon.claimed) {
-        coupon.claimed = true;
-        this.interactionManager.recordCouponClaim(couponId);
-        this.eventEmitter.emit(InteractionEventType.COUPON_CLAIM, {
-          couponId,
-          couponTitle: coupon.title,
-          discountType: coupon.discountType,
-          discountValue: coupon.discountValue,
-          fromGame: true
-        });
-      }
+  private handleGameReward(reward: GameReward): Coupon | null {
+    if (reward.type !== 'coupon') return null;
+
+    let coupon: Coupon | undefined;
+    let matchedCouponId: string | undefined;
+
+    if (typeof reward.value === 'string') {
+      coupon = this.getCoupon(reward.value);
+      if (coupon) matchedCouponId = coupon.id;
     }
+
+    if (!coupon) {
+      coupon = this.matchCouponByReward(reward);
+      if (coupon) matchedCouponId = coupon.id;
+    }
+
+    if (!coupon) {
+      coupon = this.createTemporaryRewardCoupon(reward);
+      matchedCouponId = coupon.id;
+    }
+
+    if (!coupon.claimed) {
+      coupon.claimed = true;
+      coupon.claimedAt = Date.now();
+      coupon.source = 'game_reward';
+      this.eventEmitter.emit(InteractionEventType.COUPON_CLAIM, {
+        couponId: coupon.id,
+        couponTitle: coupon.title,
+        discountType: coupon.discountType,
+        discountValue: coupon.discountValue,
+        fromGame: true,
+        actionCategory: 'benefit'
+      });
+    }
+
+    this.interactionManager.recordCouponClaim(coupon.id, coupon);
+    const progress = this.interactionManager.getVisitProgress();
+    if (progress) {
+      const gameRecord = progress.playedGameRecords[progress.playedGameRecords.length - 1];
+      if (gameRecord) gameRecord.matchedCouponId = matchedCouponId;
+    }
+
+    return coupon;
+  }
+
+  private matchCouponByReward(reward: GameReward): Coupon | undefined {
+    const all = this.getAllCoupons();
+    const byName = all.find(
+      (c) => !c.claimed && (c.title === reward.name || c.title.includes(reward.name))
+    );
+    if (byName) return byName;
+
+    if (typeof reward.value === 'number') {
+      const byValue = all.find((c) => !c.claimed && c.discountValue === reward.value);
+      if (byValue) return byValue;
+    }
+
+    const numericFromName = parseFloat(reward.name.replace(/[^\d.]/g, ''));
+    if (!isNaN(numericFromName)) {
+      const byParsed = all.find((c) => !c.claimed && c.discountValue === numericFromName);
+      if (byParsed) return byParsed;
+    }
+    return undefined;
+  }
+
+  private createTemporaryRewardCoupon(reward: GameReward): Coupon {
+    const couponId = `tmp_${generateId('reward')}`;
+    let discountType: Coupon['discountType'] = 'fixed';
+    let discountValue = 0;
+    if (typeof reward.value === 'number') {
+      discountValue = reward.value;
+    } else if (typeof reward.value === 'string') {
+      const parsed = parseFloat(reward.value.replace(/[^\d.]/g, ''));
+      if (!isNaN(parsed)) discountValue = parsed;
+      if (reward.value.includes('折') || reward.value.includes('%')) discountType = 'percentage';
+    }
+    const coupon: Coupon = {
+      id: couponId,
+      title: reward.name,
+      description: `游戏奖励：${reward.name}`,
+      discountType,
+      discountValue: discountValue || 10,
+      isTemporary: true,
+      source: 'temporary_reward',
+      claimed: true,
+      claimedAt: Date.now()
+    };
+    this.coupons.set(couponId, coupon);
+    this.logger.log(`HotspotManager: Created temporary reward coupon ${couponId} (${coupon.title})`);
+    return coupon;
   }
 
   private showGameResult(reward: GameReward): void {
@@ -700,6 +775,7 @@ export class HotspotManager {
     coupon?: Coupon;
     game?: MiniGame;
     onConfirm?: () => void;
+    onSecondary?: { label: string; action: () => void };
   }): void {
     if (!isBrowser()) return;
 
@@ -799,6 +875,26 @@ export class HotspotManager {
     closeBtn.textContent = this.i18n.t('action.close');
     closeBtn.addEventListener('click', () => this.closePopup());
     btnWrap.appendChild(closeBtn);
+
+    if (options.onSecondary) {
+      const secBtn = document.createElement('button');
+      secBtn.style.cssText = `
+        padding: 10px 14px;
+        border: 1px solid #4a90d9;
+        background: #fff;
+        color: #4a90d9;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+      `;
+      secBtn.textContent = options.onSecondary.label;
+      secBtn.addEventListener('click', () => {
+        options.onSecondary?.action();
+      });
+      btnWrap.appendChild(secBtn);
+    }
 
     if (options.onConfirm) {
       const confirmBtn = document.createElement('button');
@@ -904,8 +1000,22 @@ export class HotspotManager {
   }
 
   addCoupon(coupon: Coupon): void {
-    this.coupons.set(coupon.id, { ...coupon, claimed: false });
-    this.logger.log(`HotspotManager: Coupon ${coupon.id} added`);
+    const progress = this.interactionManager.getVisitProgress();
+    const isClaimedInProgress = progress?.claimedCoupons.includes(coupon.id);
+    const stored = this.coupons.get(coupon.id);
+    const finalCoupon: Coupon = {
+      ...coupon,
+      claimed: stored?.claimed || coupon.claimed || isClaimedInProgress || false,
+      claimedAt: stored?.claimedAt || coupon.claimedAt
+    };
+    this.coupons.set(coupon.id, finalCoupon);
+
+    if (finalCoupon.claimed && !stored?.claimed) {
+      this.interactionManager.recordCouponClaim(coupon.id, finalCoupon);
+    }
+    this.logger.log(
+      `HotspotManager: Coupon ${coupon.id} added (claimed=${finalCoupon.claimed}, syncedFromProgress=${isClaimedInProgress})`
+    );
   }
 
   addCoupons(coupons: Coupon[]): void {
@@ -946,18 +1056,24 @@ export class HotspotManager {
     }
 
     coupon.claimed = true;
+    coupon.claimedAt = Date.now();
+    if (!coupon.source) coupon.source = 'coupon_hotspot';
 
     this.eventEmitter.emit(InteractionEventType.COUPON_CLAIM, {
       couponId,
       couponTitle: coupon.title,
       discountType: coupon.discountType,
-      discountValue: coupon.discountValue
+      discountValue: coupon.discountValue,
+      source: coupon.source,
+      actionCategory: 'benefit'
     });
 
     this.showPopup({
       title: this.i18n.t('coupon.claimed'),
       content: coupon.title
     });
+
+    this.interactionManager.recordCouponClaim(couponId, coupon);
 
     this.logger.log(`HotspotManager: Coupon ${couponId} claimed successfully`);
     return { ...coupon };
@@ -987,8 +1103,15 @@ export class HotspotManager {
       const coupon = this.coupons.get(couponId);
       if (coupon && !coupon.claimed) {
         coupon.claimed = true;
+        coupon.claimedAt = coupon.claimedAt || Date.now();
+        if (!coupon.source) coupon.source = 'coupon_hotspot';
+        this.interactionManager.recordCouponClaim(couponId, coupon);
       }
     }
+    this.eventEmitter.emit(InteractionEventType.BENEFIT_RESTORED, {
+      restoredCouponCount: couponIds.length,
+      actionCategory: 'benefit'
+    });
     this.logger.log(`HotspotManager: Synced ${couponIds.length} claimed coupons`);
   }
 
@@ -996,11 +1119,13 @@ export class HotspotManager {
     return this.coupons.delete(couponId);
   }
 
-  openPurchaseEntry(productId?: string): void {
+  openPurchaseEntry(productId?: string, benefitCenter?: { openFromPurchase: (cb: (id: string | undefined) => void) => void }): void {
     const progress = this.interactionManager.getVisitProgress();
     const claimedCoupons = progress?.claimedCoupons || [];
+    const selectedCouponId = this.interactionManager.getSelectedCouponId();
     const sessionId = progress?.sessionId || this.interactionManager.getActiveSessionId() || '';
     const product = productId ? this.showcaseManager.getProduct(productId) : undefined;
+    const selectedCoupon = selectedCouponId ? this.getCoupon(selectedCouponId) : undefined;
 
     const purchaseData: Record<string, unknown> = {
       productId,
@@ -1008,6 +1133,10 @@ export class HotspotManager {
       productPrice: product?.price,
       currency: product?.currency,
       claimedCoupons,
+      selectedCouponId,
+      selectedCouponTitle: selectedCoupon?.title,
+      selectedCouponDiscountType: selectedCoupon?.discountType,
+      selectedCouponDiscountValue: selectedCoupon?.discountValue,
       sessionId,
       timestamp: Date.now()
     };
@@ -1017,24 +1146,37 @@ export class HotspotManager {
     const couponInfo = claimedCoupons.length > 0
       ? `\n\n已领优惠券: ${claimedCoupons.length}张`
       : '';
+    const selectedInfo = selectedCoupon
+      ? `\n当前选择: ${selectedCoupon.title}${selectedCoupon.discountType === 'percentage' ? ` (${selectedCoupon.discountValue}折)` : selectedCoupon.discountType === 'fixed' ? ` (-¥${selectedCoupon.discountValue})` : ''}`
+      : claimedCoupons.length > 0
+        ? '\n当前选择: 不使用优惠券'
+        : '';
 
     this.showPopup({
       title: this.i18n.t('action.buy_now'),
       content: product
-        ? `${product.name}\n${product.currency || '¥'}${product.price}${couponInfo}\n\nsessionId: ${sessionId.substring(0, 12)}...`
-        : `${this.i18n.t('action.buy_now')}${couponInfo}`,
+        ? `${product.name}\n${product.currency || '¥'}${product.price}${couponInfo}${selectedInfo}\n\nsessionId: ${sessionId.substring(0, 12)}...`
+        : `${this.i18n.t('action.buy_now')}${couponInfo}${selectedInfo}`,
       productId,
       onConfirm: () => {
         this.eventEmitter.emit(InteractionEventType.PURCHASE_INTENT, {
           ...purchaseData,
           confirmed: true
         });
-      }
+      },
+      onSecondary: benefitCenter
+        ? {
+            label: '🎟️ 选择优惠券',
+            action: () => benefitCenter.openFromPurchase((_cid) => {
+              this.openPurchaseEntry(productId, benefitCenter);
+            })
+          }
+        : undefined
     });
 
     this.logger.log(
       `HotspotManager: Purchase entry opened${productId ? ` for product ${productId}` : ''}, ` +
-      `coupons: ${claimedCoupons.length}, session: ${sessionId.substring(0, 8)}`
+      `coupons: ${claimedCoupons.length}, selected: ${selectedCouponId || 'none'}, session: ${sessionId.substring(0, 8)}`
     );
   }
 

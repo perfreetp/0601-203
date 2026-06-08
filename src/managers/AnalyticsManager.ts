@@ -123,7 +123,12 @@ export class AnalyticsManager {
       InteractionEventType.TOUR_STEP_COMPLETE,
       InteractionEventType.TOUR_COMPLETE,
       InteractionEventType.TOUR_PAUSE,
-      InteractionEventType.TOUR_RESUME
+      InteractionEventType.TOUR_RESUME,
+      InteractionEventType.BENEFIT_CENTER_OPEN,
+      InteractionEventType.BENEFIT_CENTER_CLOSE,
+      InteractionEventType.COUPON_SELECTED,
+      InteractionEventType.BENEFIT_RESTORED,
+      InteractionEventType.BENEFIT_AWARDED
     ];
 
     this.analyticsListener = (event: InteractionEvent) => {

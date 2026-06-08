@@ -13,5 +13,6 @@ export { ShareManager } from './managers/ShareManager';
 export { I18nManager } from './managers/I18nManager';
 export { TourManager } from './managers/TourManager';
 export { AnalyticsManager } from './managers/AnalyticsManager';
+export { BenefitCenterManager } from './managers/BenefitCenterManager';
 
 export * from './utils/helpers';

@@ -5,7 +5,11 @@ import {
   UserFeedback,
   VisitDurationRecord,
   Vector3,
-  InteractionEventType
+  InteractionEventType,
+  PlayedGameRecord,
+  BenefitItem,
+  BenefitType,
+  Coupon
 } from '../types';
 import { EventEmitter } from '../core/EventEmitter';
 import { Logger } from '../core/Logger';
@@ -41,6 +45,8 @@ export class InteractionManager {
       clickedHotspots: [],
       claimedCoupons: [],
       playedGames: [],
+      playedGameRecords: [],
+      benefits: [],
       completed: false
     };
 
@@ -174,6 +180,8 @@ export class InteractionManager {
       progress.clickedHotspots = progress.clickedHotspots || [];
       progress.claimedCoupons = progress.claimedCoupons || [];
       progress.playedGames = progress.playedGames || [];
+      progress.playedGameRecords = progress.playedGameRecords || [];
+      progress.benefits = progress.benefits || [];
       progress.duration = progress.duration || 0;
       progress.completed = progress.completed || false;
 
@@ -224,11 +232,42 @@ export class InteractionManager {
     }
   }
 
-  recordCouponClaim(couponId: string): void {
+  recordCouponClaim(couponId: string, coupon?: Coupon): void {
     const progress = this.getVisitProgress();
-    if (progress && !progress.claimedCoupons.includes(couponId)) {
+    if (!progress) return;
+
+    if (!progress.claimedCoupons.includes(couponId)) {
       progress.claimedCoupons.push(couponId);
       this.logger.log(`InteractionManager: Coupon claim recorded - ${couponId}`);
+    }
+
+    const benefitExists = progress.benefits.some((b) => b.couponId === couponId);
+    if (!benefitExists) {
+      const benefit: BenefitItem = {
+        id: generateId('ben'),
+        type: BenefitType.COUPON,
+        title: coupon?.title || `优惠券 ${couponId}`,
+        description: coupon?.description,
+        icon: '🎟️',
+        couponId,
+        acquiredAt: Date.now(),
+        source: coupon?.source === 'game_reward' ? 'game_reward'
+          : coupon?.source === 'tour_reward' ? 'tour_reward'
+          : coupon?.source === 'temporary_reward' ? 'imported'
+          : 'coupon_hotspot',
+        expiryDate: coupon?.expiryDate,
+        isValid: true,
+        metadata: { discountType: coupon?.discountType, discountValue: coupon?.discountValue }
+      };
+      progress.benefits.push(benefit);
+
+      this.eventEmitter.emit(InteractionEventType.BENEFIT_AWARDED, {
+        benefitId: benefit.id,
+        benefitType: benefit.type,
+        couponId,
+        source: benefit.source,
+        actionCategory: 'benefit'
+      });
     }
   }
 
@@ -316,21 +355,33 @@ export class InteractionManager {
     }
 
     const progress = this.getVisitProgress();
-    if (progress && !progress.playedGames.includes(gameId)) {
-      progress.playedGames.push(gameId);
+    if (progress) {
+      if (!progress.playedGames.includes(gameId)) {
+        progress.playedGames.push(gameId);
+      }
+      const existingRecord = progress.playedGameRecords.find((r) => r.gameId === gameId);
+      if (!existingRecord) {
+        const record: PlayedGameRecord = {
+          gameId,
+          startedAt: Date.now(),
+          completed: false
+        };
+        progress.playedGameRecords.push(record);
+      }
     }
 
     this.eventEmitter.emit(InteractionEventType.GAME_START, {
       gameId,
       gameName: game.name,
-      gameType: game.type
+      gameType: game.type,
+      actionCategory: 'game'
     });
 
     this.logger.log(`InteractionManager: Game started - ${gameId}`);
     return game;
   }
 
-  completeGame(gameId: string, reward?: GameReward): GameReward | null {
+  completeGame(gameId: string, reward?: GameReward, matchedCouponId?: string): GameReward | null {
     const game = this.games.get(gameId);
     if (!game) {
       this.logger.warn(`InteractionManager: Game ${gameId} not found`);
@@ -339,10 +390,54 @@ export class InteractionManager {
 
     const finalReward = reward || this.selectGameReward(game);
 
+    const progress = this.getVisitProgress();
+    if (progress) {
+      const record = progress.playedGameRecords.find((r) => r.gameId === gameId);
+      if (record) {
+        record.completed = true;
+        record.completedAt = Date.now();
+        record.reward = finalReward || undefined;
+        record.matchedCouponId = matchedCouponId;
+      }
+
+      if (finalReward) {
+        const benefitExists = progress.benefits.some(
+          (b) => b.type === BenefitType.GAME_REWARD && b.reward?.id === finalReward.id
+        );
+        if (!benefitExists) {
+          const benefit: BenefitItem = {
+            id: generateId('ben'),
+            type: BenefitType.GAME_REWARD,
+            title: finalReward.name,
+            icon: finalReward.type === 'coupon' ? '🎟️' : finalReward.type === 'points' ? '⭐' : finalReward.type === 'product' ? '🛍️' : '🏅',
+            reward: finalReward,
+            couponId: matchedCouponId,
+            acquiredAt: Date.now(),
+            source: 'game_reward',
+            isValid: true,
+            metadata: { gameId, gameName: game.name }
+          };
+          progress.benefits.push(benefit);
+
+          this.eventEmitter.emit(InteractionEventType.BENEFIT_AWARDED, {
+            benefitId: benefit.id,
+            benefitType: benefit.type,
+            gameId,
+            rewardId: finalReward.id,
+            matchedCouponId,
+            source: 'game_reward',
+            actionCategory: 'benefit'
+          });
+        }
+      }
+    }
+
     this.eventEmitter.emit(InteractionEventType.GAME_COMPLETE, {
       gameId,
       gameName: game.name,
-      reward: finalReward
+      reward: finalReward,
+      matchedCouponId,
+      actionCategory: 'game'
     });
 
     this.logger.log(`InteractionManager: Game completed - ${gameId}, reward: ${finalReward?.name}`);
@@ -397,6 +492,64 @@ export class InteractionManager {
     if (this.feedbacks.length === 0) return 0;
     const sum = this.feedbacks.reduce((s, f) => s + f.rating, 0);
     return sum / this.feedbacks.length;
+  }
+
+  addBenefit(benefit: Omit<BenefitItem, 'id' | 'acquiredAt'>): BenefitItem {
+    const progress = this.getVisitProgress();
+    const newBenefit: BenefitItem = {
+      ...benefit,
+      id: generateId('ben'),
+      acquiredAt: Date.now()
+    };
+    if (progress) {
+      progress.benefits.push(newBenefit);
+    }
+    this.eventEmitter.emit(InteractionEventType.BENEFIT_AWARDED, {
+      benefitId: newBenefit.id,
+      benefitType: newBenefit.type,
+      source: newBenefit.source,
+      actionCategory: 'benefit'
+    });
+    return newBenefit;
+  }
+
+  getAllBenefits(): BenefitItem[] {
+    return this.getVisitProgress()?.benefits || [];
+  }
+
+  getBenefitsByType(type: BenefitType): BenefitItem[] {
+    return this.getAllBenefits().filter((b) => b.type === type);
+  }
+
+  getPlayedGameRecords(): PlayedGameRecord[] {
+    return this.getVisitProgress()?.playedGameRecords || [];
+  }
+
+  getPlayedGameRecord(gameId: string): PlayedGameRecord | undefined {
+    return this.getPlayedGameRecords().find((r) => r.gameId === gameId);
+  }
+
+  selectCoupon(couponId: string | undefined): void {
+    const progress = this.getVisitProgress();
+    if (!progress) return;
+    if (couponId === undefined) {
+      delete progress.selectedCouponId;
+      this.logger.log('InteractionManager: Coupon selection cleared');
+    } else if (!progress.claimedCoupons.includes(couponId)) {
+      this.logger.warn(`InteractionManager: Cannot select unclaimed coupon ${couponId}`);
+      return;
+    } else {
+      progress.selectedCouponId = couponId;
+      this.logger.log(`InteractionManager: Coupon selected - ${couponId}`);
+    }
+    this.eventEmitter.emit(InteractionEventType.COUPON_SELECTED, {
+      couponId: progress.selectedCouponId,
+      actionCategory: 'benefit'
+    });
+  }
+
+  getSelectedCouponId(): string | undefined {
+    return this.getVisitProgress()?.selectedCouponId;
   }
 
   onVisitDurationUpdate(callback: (duration: number) => void): () => void {

@@ -34,7 +34,11 @@ import {
   TourStepProgress,
   AnalyticsConfig,
   AnalyticsState,
-  AnalyticsBatchResult
+  AnalyticsBatchResult,
+  BenefitState,
+  BenefitItem,
+  BenefitType,
+  PlayedGameRecord
 } from './types';
 
 import { EventEmitter } from './core/EventEmitter';
@@ -47,6 +51,7 @@ import { ShareManager } from './managers/ShareManager';
 import { I18nManager } from './managers/I18nManager';
 import { TourManager } from './managers/TourManager';
 import { AnalyticsManager } from './managers/AnalyticsManager';
+import { BenefitCenterManager } from './managers/BenefitCenterManager';
 import { generateSessionId, getPerformanceLevel } from './utils/helpers';
 
 export class MetaverseSDK {
@@ -63,6 +68,7 @@ export class MetaverseSDK {
   private i18nManager: I18nManager;
   private tourManager: TourManager;
   private analyticsManager: AnalyticsManager;
+  private benefitCenterManager: BenefitCenterManager;
   private initialized: boolean = false;
   private destroyed: boolean = false;
 
@@ -129,12 +135,21 @@ export class MetaverseSDK {
       this.showcaseManager,
       this.avatarManager,
       this.hotspotManager,
-      this.tourManager
+      this.tourManager,
+      this.interactionManager
     );
     this.analyticsManager = new AnalyticsManager(
       this.config.analytics || { enabled: false },
       this.eventEmitter,
       this.logger
+    );
+    this.benefitCenterManager = new BenefitCenterManager(
+      this.eventEmitter,
+      this.logger,
+      this.i18nManager,
+      this.showcaseManager,
+      this.hotspotManager,
+      this.interactionManager
     );
 
     this.setupInteractionListeners();
@@ -407,7 +422,48 @@ export class MetaverseSDK {
 
   openPurchaseEntry(productId?: string): void {
     this.ensureInitialized();
-    this.hotspotManager.openPurchaseEntry(productId);
+    this.hotspotManager.openPurchaseEntry(productId, this.benefitCenterManager);
+  }
+
+  openBenefitCenter(
+    entry: 'product_detail' | 'purchase' | 'game_result' | 'direct' | 'coupons' | 'games' | 'tour' = 'direct',
+    onCouponSelected?: (couponId: string | undefined) => void
+  ): void {
+    this.ensureInitialized();
+    this.benefitCenterManager.openBenefitCenter(entry, onCouponSelected);
+  }
+
+  closeBenefitCenter(): void {
+    this.benefitCenterManager.closePanel();
+  }
+
+  getBenefitState(): BenefitState {
+    return this.benefitCenterManager.getBenefitState();
+  }
+
+  getAllBenefits(): BenefitItem[] {
+    return this.interactionManager.getAllBenefits();
+  }
+
+  getBenefitsByType(type: BenefitType): BenefitItem[] {
+    return this.interactionManager.getBenefitsByType(type);
+  }
+
+  getPlayedGameRecords(): PlayedGameRecord[] {
+    return this.interactionManager.getPlayedGameRecords();
+  }
+
+  getPlayedGameRecord(gameId: string): PlayedGameRecord | undefined {
+    return this.interactionManager.getPlayedGameRecord(gameId);
+  }
+
+  selectCoupon(couponId: string | undefined): void {
+    this.ensureInitialized();
+    this.interactionManager.selectCoupon(couponId);
+  }
+
+  getSelectedCouponId(): string | undefined {
+    return this.interactionManager.getSelectedCouponId();
   }
 
   addGame(game: MiniGame): void {
@@ -607,6 +663,7 @@ export class MetaverseSDK {
     this.i18nManager.destroy();
     this.tourManager.destroy();
     void this.analyticsManager.destroy();
+    this.benefitCenterManager.destroy();
     this.eventEmitter.destroy();
 
     this.initialized = false;

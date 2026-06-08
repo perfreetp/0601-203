@@ -62,7 +62,12 @@ export enum InteractionEventType {
   TOUR_PAUSE = 'tour_pause',
   TOUR_RESUME = 'tour_resume',
   TOUR_COMPLETE = 'tour_complete',
-  TOUR_STEP_COMPLETE = 'tour_step_complete'
+  TOUR_STEP_COMPLETE = 'tour_step_complete',
+  BENEFIT_CENTER_OPEN = 'benefit_center_open',
+  BENEFIT_CENTER_CLOSE = 'benefit_center_close',
+  COUPON_SELECTED = 'coupon_selected',
+  BENEFIT_RESTORED = 'benefit_restored',
+  BENEFIT_AWARDED = 'benefit_awarded'
 }
 
 export enum Language {
@@ -260,6 +265,50 @@ export interface Coupon {
   expiryDate?: string;
   productIds?: string[];
   claimed?: boolean;
+  claimedAt?: number;
+  isTemporary?: boolean;
+  source?: 'coupon_hotspot' | 'game_reward' | 'tour_reward' | 'temporary_reward';
+}
+
+export interface PlayedGameRecord {
+  gameId: string;
+  startedAt: number;
+  completedAt?: number;
+  completed: boolean;
+  reward?: GameReward;
+  matchedCouponId?: string;
+}
+
+export enum BenefitType {
+  COUPON = 'coupon',
+  GAME_REWARD = 'game_reward',
+  TOUR_REWARD = 'tour_reward',
+  BADGE = 'badge',
+  POINTS = 'points'
+}
+
+export interface BenefitItem {
+  id: string;
+  type: BenefitType;
+  title: string;
+  description?: string;
+  icon?: string;
+  couponId?: string;
+  reward?: GameReward;
+  acquiredAt: number;
+  source: 'coupon_hotspot' | 'game_reward' | 'tour_reward' | 'imported';
+  isValid?: boolean;
+  expiryDate?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface BenefitState {
+  coupons: Coupon[];
+  benefits: BenefitItem[];
+  playedGameRecords: PlayedGameRecord[];
+  selectedCouponId?: string;
+  lastBenefitAt?: number;
+  lastBenefitType?: BenefitType;
 }
 
 export interface CameraConfig {
@@ -364,6 +413,9 @@ export interface VisitProgress {
   clickedHotspots: string[];
   claimedCoupons: string[];
   playedGames: string[];
+  playedGameRecords: PlayedGameRecord[];
+  benefits: BenefitItem[];
+  selectedCouponId?: string;
   currentPosition?: Vector3;
   completed: boolean;
   tourState?: TourState;

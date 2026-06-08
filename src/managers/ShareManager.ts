@@ -10,7 +10,8 @@ import {
   HotspotType,
   AvatarGesture,
   TourState,
-  TourStep
+  TourStep,
+  BenefitType
 } from '../types';
 import { EventEmitter } from '../core/EventEmitter';
 import { Logger } from '../core/Logger';
@@ -19,6 +20,7 @@ import { ShowcaseManager } from './ShowcaseManager';
 import { AvatarManager, Avatar } from './AvatarManager';
 import { HotspotManager } from './HotspotManager';
 import { TourManager } from './TourManager';
+import { InteractionManager } from './InteractionManager';
 import { isBrowser, generateId } from '../utils/helpers';
 
 const HOTSPOT_ICON_SMALL: Record<HotspotType, string> = {
@@ -48,6 +50,17 @@ const GESTURE_EMOJI: Record<AvatarGesture, string> = {
   [AvatarGesture.HAND_SHAKE]: '🤝',
   [AvatarGesture.THUMBS_UP]: '👍',
   [AvatarGesture.HEART]: '❤️'
+};
+
+const GESTURE_DETAILS: Record<AvatarGesture, { label: string; offsetX: number; offsetY: number }> = {
+  [AvatarGesture.WAVE]: { label: '挥手迎宾', offsetX: 1.3, offsetY: -0.15 },
+  [AvatarGesture.THUMBS_UP]: { label: '点赞推荐', offsetX: 1.4, offsetY: -0.45 },
+  [AvatarGesture.POINT]: { label: '指向商品', offsetX: 1.55, offsetY: -0.15 },
+  [AvatarGesture.CLAP]: { label: '鼓掌庆祝', offsetX: 1.3, offsetY: 0 },
+  [AvatarGesture.HEART]: { label: '比心爱你', offsetX: 0, offsetY: -1.25 },
+  [AvatarGesture.BOW]: { label: '鞠躬感谢', offsetX: -1.35, offsetY: 0.35 },
+  [AvatarGesture.THINK]: { label: '思考推荐', offsetX: -0.95, offsetY: -1.15 },
+  [AvatarGesture.HAND_SHAKE]: { label: '握手问候', offsetX: 1.35, offsetY: 0.2 }
 };
 
 const DEFAULT_SCREENSHOT_CONFIG: Required<ScreenshotConfig> = {
@@ -81,6 +94,7 @@ export class ShareManager implements IShareManager {
   private avatarManager: AvatarManager;
   private hotspotManager: HotspotManager;
   private tourManager: TourManager;
+  private interactionManager: InteractionManager;
   private canvas?: HTMLCanvasElement;
 
   constructor(
@@ -90,7 +104,8 @@ export class ShareManager implements IShareManager {
     showcaseManager: ShowcaseManager,
     avatarManager: AvatarManager,
     hotspotManager: HotspotManager,
-    tourManager: TourManager
+    tourManager: TourManager,
+    interactionManager: InteractionManager
   ) {
     this.eventEmitter = eventEmitter;
     this.logger = logger;
@@ -99,6 +114,7 @@ export class ShareManager implements IShareManager {
     this.avatarManager = avatarManager;
     this.hotspotManager = hotspotManager;
     this.tourManager = tourManager;
+    this.interactionManager = interactionManager;
   }
 
   async takeScreenshot(config?: ScreenshotConfig): Promise<ScreenshotResult> {
@@ -176,6 +192,8 @@ export class ShareManager implements IShareManager {
     if (tourState && config.includeUI) {
       this.drawTourProgress(ctx, tourState, this.tourManager.getTourSteps(), config);
     }
+
+    this.drawBenefitBadges(ctx, config);
 
     if (config.includeUI) {
       ctx.fillStyle = 'rgba(255,255,255,0.9)';
@@ -271,10 +289,35 @@ export class ShareManager implements IShareManager {
       const gestureKey = Object.entries(AvatarGesture).find(
         ([, v]) => v === avatar.currentAnimation
       )?.[1] as AvatarGesture | undefined;
+      const gestureDetail = gestureKey ? GESTURE_DETAILS[gestureKey] : undefined;
       const gestureEmoji = gestureKey ? GESTURE_EMOJI[gestureKey] : undefined;
-      if (gestureEmoji) {
-        ctx.font = `${44 * scale}px sans-serif`;
-        ctx.fillText(gestureEmoji, x + 80 * scale, y + 20 * scale);
+      if (gestureEmoji && gestureDetail) {
+        const gx = x + gestureDetail.offsetX * 80 * scale;
+        const gy = y + gestureDetail.offsetY * 80 * scale;
+
+        ctx.save();
+        ctx.shadowColor = 'rgba(255,200,50,0.6)';
+        ctx.shadowBlur = 16 * scale;
+        ctx.font = `${56 * scale}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(gestureEmoji, gx, gy);
+        ctx.restore();
+
+        const labelW = Math.max(64 * scale, ctx.measureText(gestureDetail.label).width + 20 * scale);
+        const labelH = 28 * scale;
+        const lx = gx - labelW / 2;
+        const ly = gy + 18 * scale;
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,180,30,0.95)';
+        ctx.shadowColor = 'rgba(255,150,30,0.5)';
+        ctx.shadowBlur = 10 * scale;
+        this.roundRect(ctx, lx, ly, labelW, labelH, labelH / 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${13 * scale}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.fillText(gestureDetail.label, gx, ly + 19 * scale);
+        ctx.restore();
       }
     }
 
@@ -445,6 +488,65 @@ export class ShareManager implements IShareManager {
     ctx.font = `${12 * scale}px sans-serif`;
     ctx.fillText(stepLabel, panelX + 16 * scale, panelY + 76 * scale);
     ctx.restore();
+  }
+
+  private drawBenefitBadges(
+    ctx: CanvasRenderingContext2D,
+    config: Required<ScreenshotConfig>
+  ): void {
+    const scale = config.width / 1920;
+    const now = Date.now();
+    const RECENT_WINDOW = 10 * 60 * 1000;
+    const benefits = this.interactionManager.getAllBenefits();
+    const recentBenefits = benefits
+      .filter((b) => now - b.acquiredAt < RECENT_WINDOW)
+      .slice(-3);
+
+    if (recentBenefits.length === 0) return;
+
+    const startX = 24 * scale;
+    const startY = config.height - 80 * scale;
+    const badgeH = 56 * scale;
+    const gap = 14 * scale;
+
+    for (let i = 0; i < recentBenefits.length; i++) {
+      const b = recentBenefits[recentBenefits.length - 1 - i];
+      const x = startX;
+      const y = startY - (badgeH + gap) * i;
+      const icon = b.icon || (b.type === BenefitType.COUPON ? '🎟️' : b.type === BenefitType.GAME_REWARD ? '🎮' : '🎁');
+      const label = b.title.substring(0, 14);
+      const text = `${icon} ${label}`;
+
+      ctx.save();
+      ctx.font = `${14 * scale}px sans-serif`;
+      const badgeW = Math.max(160 * scale, ctx.measureText(text).width + 44 * scale);
+      const badgeColor = b.type === BenefitType.COUPON
+        ? 'rgba(255,140,40,0.95)'
+        : b.type === BenefitType.GAME_REWARD
+          ? 'rgba(46,204,113,0.95)'
+          : 'rgba(74,144,217,0.95)';
+
+      ctx.fillStyle = badgeColor;
+      ctx.shadowColor = badgeColor.replace(/[\d.]+\)$/, '0.55)');
+      ctx.shadowBlur = 16 * scale;
+      this.roundRect(ctx, x, y, badgeW, badgeH, badgeH / 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${15 * scale}px sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, x + 20 * scale, y + badgeH / 2);
+
+      const minutesAgo = Math.floor((now - b.acquiredAt) / 60000);
+      if (minutesAgo < 60) {
+        ctx.font = `${11 * scale}px sans-serif`;
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.fillText(`${minutesAgo}分钟前`, x + badgeW - 70 * scale, y + badgeH / 2);
+      }
+      ctx.restore();
+    }
   }
 
   private drawProductCard(
